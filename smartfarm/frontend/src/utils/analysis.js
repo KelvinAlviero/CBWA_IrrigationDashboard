@@ -1,15 +1,13 @@
-export const SENSOR_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
-
 const VALID_CROP_NAMES = new Set(["Tomato", "Lettuce", "Wheat", "Maize"]);
 const VALID_SENSOR_STATUSES = new Set(["Online", "Offline", "Faulty"]);
+const BUSINESS_RANGES = {
+  soil_moisture: { label: "Soil moisture", minimum: 0, maximum: 100 },
+  temperature: { label: "Temperature", minimum: 0, maximum: 50 },
+  rainfall: { label: "Rainfall", minimum: 0, maximum: 50 },
+};
 
-function isValidMoisture(value) {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= 100
-  );
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function parseTimestamp(value) {
@@ -27,70 +25,112 @@ function parseTimestamp(value) {
     : null;
 }
 
-function isValidReading(reading) {
-  return (
-    VALID_CROP_NAMES.has(reading.crop_name) &&
-    parseTimestamp(reading.timestamp) !== null &&
-    isValidMoisture(reading.soil_moisture) &&
-    typeof reading.temperature === "number" &&
-    Number.isFinite(reading.temperature) &&
-    reading.temperature >= 0 &&
-    reading.temperature <= 50 &&
-    typeof reading.rainfall === "number" &&
-    Number.isFinite(reading.rainfall) &&
-    reading.rainfall >= 0 &&
-    reading.rainfall <= 50 &&
-    VALID_SENSOR_STATUSES.has(reading.sensor_status) &&
-    typeof reading.notes === "string"
-  );
+function getInvalidFields(reading) {
+  const invalidFields = [];
+  if (!VALID_CROP_NAMES.has(reading.crop_name)) invalidFields.push("Crop name");
+  if (parseTimestamp(reading.timestamp) === null) invalidFields.push("Timestamp");
+  if (!VALID_SENSOR_STATUSES.has(reading.sensor_status)) {
+    invalidFields.push("Sensor status");
+  }
+  if (typeof reading.notes !== "string") invalidFields.push("Notes");
+
+  for (const [field, range] of Object.entries(BUSINESS_RANGES)) {
+    const value = reading[field];
+    if (
+      !isFiniteNumber(value) ||
+      value < range.minimum ||
+      value > range.maximum
+    ) {
+      invalidFields.push(
+        `${range.label} (${Number.isFinite(value) ? value : "not a number"}; allowed ${range.minimum}-${range.maximum})`,
+      );
+    }
+  }
+  return invalidFields;
 }
 
 function getLatestReading(readings) {
-  const timestamped = readings
-    .map((reading) => ({
-      reading,
-      timestamp: parseTimestamp(reading.timestamp),
-    }))
-    .filter(({ timestamp }) => timestamp !== null);
-
-  if (timestamped.length === 0) {
-    return { reading: readings.at(-1), timestamp: null };
-  }
-
-  const latest = timestamped.reduce((newest, candidate) =>
-    candidate.timestamp >= newest.timestamp ? candidate : newest,
+  return (
+    [...readings].sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0] ??
+    null
   );
-
-  return latest;
 }
 
-function getCropStatus(reading, timestamp, crop, now) {
-  if (
-    timestamp === null ||
-    timestamp > now + 5 * 60 * 1000 ||
-    !isValidReading(reading)
-  ) {
-    return { status: "Invalid Data", sensorHealth: "Invalid Data" };
+function withDecision(crop, reading, overrides) {
+  return {
+    ...crop,
+    status: overrides.status,
+    sensorHealth: overrides.sensorHealth ?? overrides.status,
+    moisture: reading?.soil_moisture ?? null,
+    temperature: reading?.temperature ?? null,
+    rainfall: reading?.rainfall ?? null,
+    timestamp: reading ? parseTimestamp(reading.timestamp) : null,
+    recommendedWater: overrides.recommendedWater,
+    action: overrides.action,
+    alerts: overrides.alerts ?? [],
+    invalidFields: overrides.invalidFields ?? [],
+  };
+}
+
+function analyzeReading(crop, reading) {
+  if (!reading) {
+    return withDecision(crop, null, {
+      status: "Sensor Problem",
+      recommendedWater: "N/A",
+      action: "Check sensor",
+    });
   }
 
-  if (
-    reading.sensor_status === "Offline" ||
-    reading.sensor_status === "Faulty" ||
-    now - timestamp > SENSOR_STALE_AFTER_MS
-  ) {
-    return { status: "Sensor Problem", sensorHealth: "Sensor Problem" };
+  if (reading.sensor_status === "Offline" || reading.sensor_status === "Faulty") {
+    return withDecision(crop, reading, {
+      status: "Sensor Problem",
+      recommendedWater: "N/A",
+      action: "Check sensor",
+    });
   }
+
+  const invalidFields = getInvalidFields(reading);
+  if (invalidFields.length > 0) {
+    return withDecision(crop, reading, {
+      status: "Invalid Data",
+      recommendedWater: "N/A",
+      action: "Check reading",
+      invalidFields,
+    });
+  }
+
+  const alerts = [];
+  if (reading.temperature > 35) alerts.push("High temperature");
+  if (reading.rainfall >= 5) alerts.push("Rain detected");
 
   if (reading.soil_moisture < crop.targetMoistureMin) {
-    return { status: "Dry", sensorHealth: "Sensor OK" };
+    return withDecision(crop, reading, {
+      status: "Dry",
+      sensorHealth: "Sensor OK",
+      recommendedWater: `${crop.normalWater} L`,
+      action: "Water crop",
+      alerts,
+    });
   }
-  if (reading.soil_moisture > crop.targetMoistureMax) {
-    return { status: "Too Wet", sensorHealth: "Sensor OK" };
+  if (reading.soil_moisture <= crop.targetMoistureMax) {
+    return withDecision(crop, reading, {
+      status: "Healthy",
+      sensorHealth: "Sensor OK",
+      recommendedWater: "0 L",
+      action: "Monitor",
+      alerts,
+    });
   }
-  return { status: "Healthy", sensorHealth: "Sensor OK" };
+  return withDecision(crop, reading, {
+    status: "Too Wet",
+    sensorHealth: "Sensor OK",
+    recommendedWater: "0 L",
+    action: "Stop watering",
+    alerts,
+  });
 }
 
-export function analyzeCropCards(cropCards, readings, now = Date.now()) {
+export function analyzeCropCards(cropCards, readings) {
   if (!Array.isArray(cropCards)) {
     throw new Error("Crop cards must be an array");
   }
@@ -115,31 +155,43 @@ export function analyzeCropCards(cropCards, readings, now = Date.now()) {
   }
 
   return cropCards.map((crop) => {
-    const cropReadings = readingsByCrop.get(crop.cropName) ?? [];
-    if (cropReadings.length === 0) {
-      return {
-        ...crop,
-        status: "Sensor Problem",
-        sensorHealth: "Sensor Problem",
-        moisture: null,
-        timestamp: null,
-      };
-    }
-
-    const latest = getLatestReading(cropReadings);
-    const { status, sensorHealth } = getCropStatus(
-      latest.reading,
-      latest.timestamp,
-      crop,
-      now,
-    );
-
-    return {
-      ...crop,
-      status,
-      sensorHealth,
-      moisture: latest.reading.soil_moisture,
-      timestamp: latest.timestamp,
-    };
+    const latest = getLatestReading(readingsByCrop.get(crop.cropName) ?? []);
+    return analyzeReading(crop, latest);
   });
+}
+
+export function createUnavailableCropCards(cropCards) {
+  return cropCards.map((crop) =>
+    withDecision(crop, null, {
+      status: "Sensor Feed Unavailable",
+      recommendedWater: "N/A",
+      action: "Refresh sensor data",
+    }),
+  );
+}
+
+export function getOverallFarmStatus(crops, hasSuccessfulSensorData) {
+  if (!Array.isArray(crops)) {
+    throw new Error("Crop cards must be an array");
+  }
+  if (crops.length === 0) return "No Crops";
+  if (!hasSuccessfulSensorData) return "Sensor Feed Unavailable";
+  if (
+    crops.some(
+      ({ status }) => status === "Sensor Problem" || status === "Invalid Data",
+    )
+  ) {
+    return "Critical";
+  }
+  if (
+    crops.some(
+      ({ status, alerts }) =>
+        status === "Dry" ||
+        status === "Too Wet" ||
+        alerts?.includes("High temperature"),
+    )
+  ) {
+    return "Watch";
+  }
+  return "Normal";
 }

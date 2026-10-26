@@ -29,9 +29,13 @@ Lettuce, Wheat, and Maize. Readings use `crop_name`, `timestamp`,
 `soil_moisture`, `temperature`, `rainfall`, `sensor_status`, and `notes`. Crop names
 and sensor statuses use the exact values specified by the feed contract. Each
 reading uses the exact, case-sensitive `crop_name` value to match sensor data to a
-crop card. Cards show saved crop settings and the latest timestamped reading.
-Readings older than 24 hours or with an Offline/Faulty sensor are marked as sensor
-problems. Invalid sensor values are marked as invalid data.
+crop card. Cards show saved crop settings and the latest timestamped reading. Crop
+conditions follow the dashboard decision table: Offline/Faulty readings are Sensor
+Problem, out-of-range Online readings are Invalid Data, and valid Online readings
+are Dry, Healthy, or Too Wet based on the saved moisture range. Cards also show
+recommended water, action, and valid-reading temperature/rain alerts. Overall Farm
+Status summarizes the current cards as No Crops, Sensor Feed Unavailable, Critical,
+Watch, or Normal.
 
 The backend initializes a SQLite database at
 `smartfarm/backend/data/crop-cards.sqlite` when it starts. Its schema is in

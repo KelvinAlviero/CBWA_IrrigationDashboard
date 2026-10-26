@@ -15,6 +15,82 @@ const port = Number(process.env.PORT ?? 3004);
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8" };
 const maximumBodySize = 16 * 1024;
 const sensorCropNames = new Set(["Tomato", "Lettuce", "Wheat", "Maize"]);
+const sensorCropNameList = ["Tomato", "Lettuce", "Wheat", "Maize"];
+const sensorStatuses = new Set(["Online", "Offline", "Faulty"]);
+
+class SensorDataFileError extends Error {
+  constructor(options) {
+    super("Sensor data file is invalid", options);
+    this.name = "SensorDataFileError";
+  }
+}
+
+function isValidSensorTimestamp(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)
+  ) {
+    return false;
+  }
+
+  const timestamp = Date.parse(`${value}Z`);
+  return (
+    Number.isFinite(timestamp) &&
+    new Date(timestamp).toISOString().slice(0, 19) === value
+  );
+}
+
+function isValidSensorReadings(readings) {
+  if (!Array.isArray(readings) || readings.length !== 20) return false;
+
+  const timestampsByCrop = new Map(
+    sensorCropNameList.map((cropName) => [cropName, new Set()]),
+  );
+  const countByCrop = new Map(sensorCropNameList.map((cropName) => [cropName, 0]));
+
+  for (const reading of readings) {
+    if (
+      reading === null ||
+      typeof reading !== "object" ||
+      Array.isArray(reading) ||
+      !sensorCropNames.has(reading.crop_name) ||
+      !isValidSensorTimestamp(reading.timestamp) ||
+      typeof reading.soil_moisture !== "number" ||
+      !Number.isFinite(reading.soil_moisture) ||
+      typeof reading.temperature !== "number" ||
+      !Number.isFinite(reading.temperature) ||
+      typeof reading.rainfall !== "number" ||
+      !Number.isFinite(reading.rainfall) ||
+      !sensorStatuses.has(reading.sensor_status) ||
+      typeof reading.notes !== "string"
+    ) {
+      return false;
+    }
+
+    const timestamps = timestampsByCrop.get(reading.crop_name);
+    if (timestamps.has(reading.timestamp)) return false;
+    timestamps.add(reading.timestamp);
+    countByCrop.set(reading.crop_name, countByCrop.get(reading.crop_name) + 1);
+  }
+
+  return sensorCropNameList.every(
+    (cropName) => countByCrop.get(cropName) === 5,
+  );
+}
+
+async function readValidatedSensorReadings(readReadings) {
+  let readings;
+  try {
+    readings = await readReadings();
+  } catch (cause) {
+    throw new SensorDataFileError({ cause });
+  }
+
+  if (!isValidSensorReadings(readings)) {
+    throw new SensorDataFileError();
+  }
+  return readings;
+}
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, jsonHeaders);
@@ -131,11 +207,7 @@ export function createApiServer({
 
     try {
       if (pathname === "/api/readings" && request.method === "GET") {
-        const readings = await readReadings();
-        if (!Array.isArray(readings)) {
-          sendJson(response, 500, { error: "The sensor feed must be a JSON array" });
-          return;
-        }
+        const readings = await readValidatedSensorReadings(readReadings);
         sendJson(response, 200, readings);
         return;
       }
@@ -146,7 +218,7 @@ export function createApiServer({
       }
 
       if (pathname === "/api/crop-options" && request.method === "GET") {
-        const readings = await readReadings();
+        const readings = await readValidatedSensorReadings(readReadings);
         const existingCropNames = new Set(
           listCropCards(database).map((crop) => crop.crop_name),
         );
@@ -166,7 +238,7 @@ export function createApiServer({
           return;
         }
 
-        const readings = await readReadings();
+        const readings = await readValidatedSensorReadings(readReadings);
         if (!getFeedCropNames(readings).includes(cropName)) {
           sendJson(response, 400, {
             error: "Crop name must exactly match a crop in the sensor feed",
@@ -240,6 +312,10 @@ export function createApiServer({
 
       sendJson(response, 404, { error: "Not found" });
     } catch (error) {
+      if (error instanceof SensorDataFileError) {
+        sendJson(response, 500, { error: "Sensor data file is invalid" });
+        return;
+      }
       if (error.statusCode) {
         sendJson(response, error.statusCode, { error: error.message });
         return;

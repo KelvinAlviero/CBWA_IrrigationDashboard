@@ -6,6 +6,7 @@ const statusClasses = {
   "Sensor OK": "healthy",
   "Too Wet": "too-wet",
   "Sensor Problem": "sensor-problem",
+  "Sensor Feed Unavailable": "sensor-problem",
   "Invalid Data": "invalid-data",
 };
 
@@ -35,8 +36,16 @@ export default function DashboardCard({ crop, onEdit, onDelete }) {
           </dd>
         </div>
         <div className="crop-detail">
-          <dt>Latest soil moisture</dt>
+          <dt>Soil moisture</dt>
           <dd>{moisture}</dd>
+        </div>
+        <div className="crop-detail">
+          <dt>Recommended water</dt>
+          <dd>{crop.recommendedWater}</dd>
+        </div>
+        <div className="crop-detail">
+          <dt>Action</dt>
+          <dd>{crop.action}</dd>
         </div>
         <div className="crop-detail">
           <dt>Target range</dt>
@@ -57,6 +66,20 @@ export default function DashboardCard({ crop, onEdit, onDelete }) {
           <dd>{timestamp}</dd>
         </div>
       </dl>
+      {crop.invalidFields.length > 0 && (
+        <p className="crop-alert invalid-data" role="alert">
+          Invalid field: {crop.invalidFields.join(", ")}
+        </p>
+      )}
+      {crop.alerts.length > 0 && (
+        <ul className="crop-alert-list" aria-label="Additional sensor alerts">
+          {crop.alerts.map((alert) => (
+            <li className="crop-alert" key={alert}>
+              {alert}
+            </li>
+          ))}
+        </ul>
+      )}
       {crop.notes && <p className="crop-notes">{crop.notes}</p>}
       <div className="crop-card-actions">
         <button

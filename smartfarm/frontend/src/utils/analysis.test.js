@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeCropCards } from "./analysis.js";
+import {
+  analyzeCropCards,
+  createUnavailableCropCards,
+  getOverallFarmStatus,
+} from "./analysis.js";
 
-const now = Date.parse("2026-10-26T10:00:00.000Z");
 const recentTimestamp = "2026-10-26T09:30:00";
 
 function reading(crop_name, timestamp, soil_moisture, overrides = {}) {
@@ -29,7 +32,6 @@ test("matches exact case-sensitive crop names and uses the greatest timestamp", 
       reading("Tomato", recentTimestamp, 22),
       reading("Tomato", "2026-10-26T08:00:00", 55),
     ],
-    now,
   );
 
   assert.equal(crops[0].moisture, 22);
@@ -52,7 +54,6 @@ test("uses each saved crop target range and accepts both range boundaries", () =
         soil_moisture,
       ),
     ),
-    now,
   );
 
   assert.deepEqual(
@@ -61,7 +62,7 @@ test("uses each saved crop target range and accepts both range boundaries", () =
   );
 });
 
-test("distinguishes sensor problems from invalid readings", () => {
+test("sensor problems take priority and reading age alone does not change condition", () => {
   const crops = analyzeCropCards(
     [card("Tomato"), card("Lettuce"), card("Wheat")],
     [
@@ -69,7 +70,6 @@ test("distinguishes sensor problems from invalid readings", () => {
       reading("Lettuce", recentTimestamp, 101),
       reading("Wheat", "2026-10-24T09:00:00", 50),
     ],
-    now,
   );
 
   assert.deepEqual(
@@ -77,7 +77,7 @@ test("distinguishes sensor problems from invalid readings", () => {
     [
       ["Sensor Problem", "Sensor Problem"],
       ["Invalid Data", "Invalid Data"],
-      ["Sensor Problem", "Sensor Problem"],
+      ["Healthy", "Sensor OK"],
     ],
   );
 });
@@ -86,7 +86,6 @@ test("reports invalid timestamps and missing readings explicitly", () => {
   const crops = analyzeCropCards(
     [card("Tomato"), card("Maize")],
     [reading("Tomato", "not-a-date", 50)],
-    now,
   );
 
   assert.equal(crops[0].status, "Invalid Data");
@@ -103,7 +102,6 @@ test("marks readings with invalid sensor fields as invalid data", () => {
       reading("Wheat", recentTimestamp, 50, { sensor_status: "ok" }),
       reading("Maize", recentTimestamp, 50, { notes: 1 }),
     ],
-    now,
   );
 
   assert.deepEqual(
@@ -112,12 +110,181 @@ test("marks readings with invalid sensor fields as invalid data", () => {
   );
 });
 
+test("only Online readings with out-of-range values are invalid data", () => {
+  const crops = analyzeCropCards(
+    [card("Tomato"), card("Lettuce"), card("Wheat")],
+    [
+      reading("Tomato", recentTimestamp, 101),
+      reading("Lettuce", recentTimestamp, 50, {
+        temperature: 51,
+      }),
+      reading("Wheat", recentTimestamp, 50, {
+        rainfall: -1,
+        sensor_status: "Offline",
+      }),
+    ],
+  );
+
+  assert.deepEqual(
+    crops.map(({ status, sensorHealth }) => [status, sensorHealth]),
+    [
+      ["Invalid Data", "Invalid Data"],
+      ["Invalid Data", "Invalid Data"],
+      ["Sensor Problem", "Sensor Problem"],
+    ],
+  );
+});
+
+test("applies water recommendations, actions, and additional alert boundaries", () => {
+  const crops = analyzeCropCards(
+    [
+      { ...card("Tomato", 50, 70), normalWater: 500 },
+      { ...card("Lettuce", 50, 70), normalWater: 400 },
+      { ...card("Wheat", 50, 70), normalWater: 300 },
+      { ...card("Maize", 50, 70), normalWater: 600 },
+    ],
+    [
+      reading("Tomato", recentTimestamp, 49, {
+        temperature: 36,
+        rainfall: 5,
+      }),
+      reading("Lettuce", recentTimestamp, 50, {
+        temperature: 35,
+        rainfall: 5,
+      }),
+      reading("Wheat", recentTimestamp, 70),
+      reading("Maize", recentTimestamp, 71),
+    ],
+  );
+
+  assert.deepEqual(
+    crops.map(({ status, recommendedWater, action, alerts }) => ({
+      status,
+      recommendedWater,
+      action,
+      alerts,
+    })),
+    [
+      {
+        status: "Dry",
+        recommendedWater: "500 L",
+        action: "Water crop",
+        alerts: ["High temperature", "Rain detected"],
+      },
+      {
+        status: "Healthy",
+        recommendedWater: "0 L",
+        action: "Monitor",
+        alerts: ["Rain detected"],
+      },
+      {
+        status: "Healthy",
+        recommendedWater: "0 L",
+        action: "Monitor",
+        alerts: [],
+      },
+      {
+        status: "Too Wet",
+        recommendedWater: "0 L",
+        action: "Stop watering",
+        alerts: [],
+      },
+    ],
+  );
+});
+
+test("sensor and invalid conditions stop later checks and show required guidance", () => {
+  const crops = analyzeCropCards(
+    [
+      { ...card("Tomato"), normalWater: 500 },
+      { ...card("Lettuce"), normalWater: 400 },
+    ],
+    [
+      reading("Tomato", recentTimestamp, 120, {
+        sensor_status: "Faulty",
+      }),
+      reading("Lettuce", recentTimestamp, 120),
+    ],
+  );
+
+  assert.deepEqual(
+    crops.map(
+      ({ status, recommendedWater, action, invalidFields, alerts }) => ({
+        status,
+        recommendedWater,
+        action,
+        invalidFields,
+        alerts,
+      }),
+    ),
+    [
+      {
+        status: "Sensor Problem",
+        recommendedWater: "N/A",
+        action: "Check sensor",
+        invalidFields: [],
+        alerts: [],
+      },
+      {
+        status: "Invalid Data",
+        recommendedWater: "N/A",
+        action: "Check reading",
+        invalidFields: ["Soil moisture (120; allowed 0-100)"],
+        alerts: [],
+      },
+    ],
+  );
+});
+
+test("calculates overall farm status with critical and no-crop priorities", () => {
+  const healthy = [{ status: "Healthy", alerts: [] }];
+  assert.equal(getOverallFarmStatus([], false), "No Crops");
+  assert.equal(getOverallFarmStatus(healthy, false), "Sensor Feed Unavailable");
+  assert.equal(
+    getOverallFarmStatus([{ status: "Invalid Data" }, ...healthy], true),
+    "Critical",
+  );
+  assert.equal(
+    getOverallFarmStatus([{ status: "Dry" }, ...healthy], true),
+    "Watch",
+  );
+  assert.equal(
+    getOverallFarmStatus(
+      [{ status: "Healthy", alerts: ["High temperature"] }],
+      true,
+    ),
+    "Watch",
+  );
+  assert.equal(
+    getOverallFarmStatus(
+      [{ status: "Healthy", alerts: ["Rain detected"] }],
+      true,
+    ),
+    "Normal",
+  );
+  assert.equal(getOverallFarmStatus(healthy, true), "Normal");
+});
+
+test("marks existing cards unavailable before the first successful sensor response", () => {
+  const [crop] = createUnavailableCropCards([
+    { ...card("Tomato"), normalWater: 500 },
+  ]);
+
+  assert.equal(crop.status, "Sensor Feed Unavailable");
+  assert.equal(crop.recommendedWater, "N/A");
+  assert.equal(crop.action, "Refresh sensor data");
+  assert.equal(
+    getOverallFarmStatus([crop], false),
+    "Sensor Feed Unavailable",
+  );
+});
+
 test("ignores malformed feed rows and rejects invalid input collections", () => {
   assert.deepEqual(
-    analyzeCropCards([card("Tomato")], [{ timestamp: recentTimestamp }], now)[0]
+    analyzeCropCards([card("Tomato")], [{ timestamp: recentTimestamp }])[0]
       .status,
     "Sensor Problem",
   );
-  assert.throws(() => analyzeCropCards(null, [], now), /Crop cards must be an array/);
-  assert.throws(() => analyzeCropCards([], null, now), /JSON array/);
+  assert.throws(() => analyzeCropCards(null, []), /Crop cards must be an array/);
+  assert.throws(() => analyzeCropCards([], null), /JSON array/);
 });

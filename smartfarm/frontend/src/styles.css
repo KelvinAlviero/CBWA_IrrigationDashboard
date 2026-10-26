@@ -89,6 +89,37 @@ a {
   gap: 10px;
 }
 
+.farm-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -8px 0 24px;
+  color: #414a45;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.farm-status-normal {
+  background: #e5f4eb;
+  color: #216d48;
+}
+
+.farm-status-watch {
+  background: #fff2d6;
+  color: var(--amber);
+}
+
+.farm-status-critical {
+  background: #fbe9e7;
+  color: var(--red);
+}
+
+.farm-status-no-crops,
+.farm-status-sensor-feed-unavailable {
+  background: #edf0ee;
+  color: #56615a;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   color: var(--green);
@@ -209,6 +240,23 @@ h1 {
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+.crop-alert {
+  margin: 14px 0 0;
+  color: var(--amber);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.crop-alert.invalid-data {
+  color: var(--red);
+}
+
+.crop-alert-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .crop-card-actions {

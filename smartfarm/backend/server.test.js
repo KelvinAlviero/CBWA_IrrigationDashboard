@@ -5,53 +5,19 @@ import { analyzeCropCards } from "../frontend/src/utils/analysis.js";
 import { getSensorReadings, initializeDatabase } from "./db.js";
 import { createApiServer } from "./server.js";
 
-const sensorFeed = [
-  {
-    crop_name: "Tomato",
-    timestamp: "2026-10-26T09:00:00",
-    soil_moisture: 60,
-    temperature: 25,
-    rainfall: 0,
-    sensor_status: "Online",
-    notes: "",
-  },
-  {
-    crop_name: "Lettuce",
-    timestamp: "2026-10-26T09:10:00",
-    soil_moisture: 70,
-    temperature: 20,
-    rainfall: 0,
-    sensor_status: "Online",
-    notes: "",
-  },
-  {
-    crop_name: "Wheat",
-    timestamp: "2026-10-26T09:12:00",
-    soil_moisture: 45,
-    temperature: 21,
-    rainfall: 0,
-    sensor_status: "Online",
-    notes: "",
-  },
-  {
-    crop_name: "Maize",
-    timestamp: "2026-10-26T08:00:00",
-    soil_moisture: 25,
-    temperature: 28,
-    rainfall: 0,
-    sensor_status: "Online",
-    notes: "",
-  },
-  {
-    crop_name: "Maize",
-    timestamp: "2026-10-26T09:30:00",
-    soil_moisture: 55,
-    temperature: 29,
-    rainfall: 0,
-    sensor_status: "Online",
-    notes: "",
-  },
-];
+const sensorFeed = ["Tomato", "Lettuce", "Wheat", "Maize"].flatMap(
+  (crop_name) =>
+    Array.from({ length: 5 }, (_, index) => ({
+      crop_name,
+      timestamp: `2026-10-26T${String(8 + Math.floor(index / 2)).padStart(2, "0")}:${index % 2 === 1 ? "30" : "00"}:00`,
+      soil_moisture:
+        crop_name === "Maize" ? [25, 30, 40, 48, 55][index] : 60,
+      temperature: 25,
+      rainfall: 0,
+      sensor_status: "Online",
+      notes: "",
+    })),
+);
 
 const maizeProfile = {
   location: "South Field",
@@ -115,11 +81,8 @@ test("static sensor file contains exactly five valid readings for each supported
     assert.match(reading.timestamp, timestampPattern);
     assert.ok(Number.isFinite(Date.parse(`${reading.timestamp}Z`)));
     assert.equal(typeof reading.soil_moisture, "number");
-    assert.ok(reading.soil_moisture >= 0 && reading.soil_moisture <= 100);
     assert.equal(typeof reading.temperature, "number");
-    assert.ok(reading.temperature >= 0 && reading.temperature <= 50);
     assert.equal(typeof reading.rainfall, "number");
-    assert.ok(reading.rainfall >= 0 && reading.rainfall <= 50);
     assert.ok(["Online", "Offline", "Faulty"].includes(reading.sensor_status));
     assert.equal(typeof reading.notes, "string");
     readingsByCrop.get(reading.crop_name).push(reading.timestamp);
@@ -131,20 +94,111 @@ test("static sensor file contains exactly five valid readings for each supported
   }
 });
 
+test("structurally valid out-of-range readings are returned by the API", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  initializeDatabase(database);
+  const outOfRangeFeed = structuredClone(sensorFeed);
+  outOfRangeFeed[0] = {
+    ...outOfRangeFeed[0],
+    soil_moisture: 101,
+    temperature: 51,
+    rainfall: 51,
+  };
+  const api = await createTestApi(t, database, outOfRangeFeed);
+
+  const response = await api.request("/api/readings");
+  assert.equal(response.response.status, 200);
+  assert.deepEqual(response.body[0], outOfRangeFeed[0]);
+});
+
+test("structurally invalid sensor files return the exact 500 response", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  initializeDatabase(database);
+  let feed = sensorFeed;
+  let shouldThrow = false;
+  const api = await createTestApi(t, database, () => {
+    if (shouldThrow) throw new SyntaxError("Invalid JSON");
+    return feed;
+  });
+  const invalidFeeds = [
+    null,
+    sensorFeed.slice(1),
+    sensorFeed.map((reading, index) =>
+      index === 0
+        ? {
+            ...reading,
+            crop_name: "Lettuce",
+            timestamp: "2026-10-26T10:30:00",
+          }
+        : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, crop_name: "Lettuce" } : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, crop_name: "Corn" } : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, timestamp: "2026-02-30T10:00:00" } : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0
+        ? { ...reading, timestamp: sensorFeed[1].timestamp }
+        : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, soil_moisture: "40" } : reading,
+    ),
+    sensorFeed.map((reading, index) => {
+      if (index !== 0) return reading;
+      const { soil_moisture, ...missingField } = reading;
+      return missingField;
+    }),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, temperature: null } : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, rainfall: false } : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, sensor_status: "ok" } : reading,
+    ),
+    sensorFeed.map((reading, index) =>
+      index === 0 ? { ...reading, notes: null } : reading,
+    ),
+  ];
+
+  for (const invalidFeed of invalidFeeds) {
+    feed = invalidFeed;
+    const response = await api.request("/api/readings");
+    assert.equal(response.response.status, 500);
+    assert.deepEqual(response.body, { error: "Sensor data file is invalid" });
+  }
+
+  shouldThrow = true;
+  const parseErrorResponse = await api.request("/api/readings");
+  assert.equal(parseErrorResponse.response.status, 500);
+  assert.deepEqual(parseErrorResponse.body, {
+    error: "Sensor data file is invalid",
+  });
+});
+
 test("readings endpoint invokes the sensor-file reader for every request", async (t) => {
   const database = new DatabaseSync(":memory:");
   initializeDatabase(database);
   let readCount = 0;
-  let latestReading = sensorFeed[0];
+  let feed = structuredClone(sensorFeed);
   const api = await createTestApi(t, database, () => {
     readCount += 1;
-    return [latestReading];
+    return feed;
   });
 
   const firstResponse = await api.request("/api/readings");
   assert.equal(firstResponse.body[0].soil_moisture, 60);
 
-  latestReading = { ...latestReading, soil_moisture: 42 };
+  feed = feed.map((reading, index) =>
+    index === 0 ? { ...reading, soil_moisture: 42 } : reading,
+  );
   const refreshedResponse = await api.request("/api/readings");
   assert.equal(refreshedResponse.body[0].soil_moisture, 42);
   assert.equal(readCount, 2);
@@ -272,7 +326,7 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
     Date.parse("2026-10-26T10:00:00Z"),
   );
   assert.equal(combinedMaize.moisture, 55);
-  assert.equal(combinedMaize.timestamp, Date.parse("2026-10-26T09:30:00Z"));
+  assert.equal(combinedMaize.timestamp, Date.parse("2026-10-26T10:00:00Z"));
   assert.equal(combinedMaize.status, "Healthy");
 
   const updated = await api.put("/api/crops/Maize", {
