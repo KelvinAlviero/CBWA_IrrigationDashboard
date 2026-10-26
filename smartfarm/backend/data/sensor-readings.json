@@ -1,0 +1,38 @@
+[
+  {
+    "crop_name": "Tomatoes",
+    "timestamp": "2026-10-26T08:20:00.000Z",
+    "soilMoisture": 35,
+    "sensor_status": "ok"
+  },
+  {
+    "crop_name": "Tomatoes",
+    "timestamp": "2026-10-26T09:05:00.000Z",
+    "soilMoisture": 24,
+    "sensor_status": "ok"
+  },
+  {
+    "crop_name": "Lettuce",
+    "timestamp": "2026-10-26T09:10:00.000Z",
+    "soilMoisture": 56,
+    "sensor_status": "ok"
+  },
+  {
+    "crop_name": "Corn",
+    "timestamp": "2026-10-26T09:12:00.000Z",
+    "soilMoisture": 84,
+    "sensor_status": "ok"
+  },
+  {
+    "crop_name": "Strawberries",
+    "timestamp": "2026-10-26T09:14:00.000Z",
+    "soilMoisture": 52,
+    "sensor_status": "problem"
+  },
+  {
+    "crop_name": "Blueberries",
+    "timestamp": "2026-10-26T09:16:00.000Z",
+    "soilMoisture": 105,
+    "sensor_status": "ok"
+  }
+]

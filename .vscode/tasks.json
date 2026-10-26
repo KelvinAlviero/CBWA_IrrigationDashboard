@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start SmartFarm API",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "smartfarm", "run", "start:backend"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^$",
+          "endsPattern": "SmartFarm API listening on port 3001"
+        }
+      }
+    },
+    {
+      "label": "Start SmartFarm frontend",
+      "type": "shell",
+      "command": "npm",
+      "args": ["--prefix", "smartfarm", "run", "dev"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^$",
+          "endsPattern": "http://localhost:5173/"
+        }
+      }
+    },
+    {
+      "label": "Start SmartFarm",
+      "dependsOn": ["Start SmartFarm API", "Start SmartFarm frontend"],
+      "dependsOrder": "parallel"
+    }
+  ]
+}

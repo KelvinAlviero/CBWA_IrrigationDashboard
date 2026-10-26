@@ -1,0 +1,14 @@
+{
+  "name": "smartfarm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start:backend": "node backend/server.js"
+  }
+}
