@@ -25,25 +25,24 @@ async function requestJson(path, options) {
 
 function fromDatabaseRow(row) {
   return {
+    id: row.id,
     cropName: row.crop_name,
     location: row.location,
-    targetMoistureMin: row.target_moisture_min,
-    targetMoistureMax: row.target_moisture_max,
-    normalWaterAmount: row.normal_water_amount,
-    normalWaterUnit: row.normal_water_unit,
+    targetMoistureMin: row.target_min,
+    targetMoistureMax: row.target_max,
+    normalWater: row.normal_water,
     notes: row.notes,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
   };
 }
 
-function toDatabaseFields(crop) {
+function toDatabaseFields(crop, includeCropName = true) {
   return {
+    ...(includeCropName ? { crop_name: crop.cropName } : {}),
     location: crop.location,
-    targetMoistureMin: Number(crop.targetMoistureMin),
-    targetMoistureMax: Number(crop.targetMoistureMax),
-    normalWaterAmount: Number(crop.normalWaterAmount),
-    normalWaterUnit: crop.normalWaterUnit,
+    target_min: Number(crop.targetMoistureMin),
+    target_max: Number(crop.targetMoistureMax),
+    normal_water: Number(crop.normalWater),
     notes: crop.notes,
   };
 }
@@ -75,7 +74,7 @@ export async function getCropOptions() {
 export async function createCropCard(cropName, crop) {
   const row = await requestJson("/api/crops", {
     method: "POST",
-    body: JSON.stringify({ cropName, ...toDatabaseFields(crop) }),
+    body: JSON.stringify({ ...toDatabaseFields(crop), crop_name: cropName }),
   });
   return fromDatabaseRow(row);
 }
@@ -83,7 +82,7 @@ export async function createCropCard(cropName, crop) {
 export async function updateCropCard(cropName, crop) {
   const row = await requestJson(`/api/crops/${encodeURIComponent(cropName)}`, {
     method: "PUT",
-    body: JSON.stringify(toDatabaseFields(crop)),
+    body: JSON.stringify(toDatabaseFields(crop, false)),
   });
   return fromDatabaseRow(row);
 }

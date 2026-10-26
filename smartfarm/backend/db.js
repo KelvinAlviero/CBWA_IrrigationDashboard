@@ -11,31 +11,28 @@ const databasePath =
 
 const seedCrops = [
   {
-    cropName: "Tomatoes",
+    crop_name: "Tomato",
     location: "Greenhouse A",
-    targetMoistureMin: 30,
-    targetMoistureMax: 70,
-    normalWaterAmount: 2,
-    normalWaterUnit: "L/plant/day",
-    notes: "Seed profile; adjust for local growing conditions.",
+    target_min: 55,
+    target_max: 75,
+    normal_water: 500,
+    notes: "",
   },
   {
-    cropName: "Lettuce",
-    location: "North field",
-    targetMoistureMin: 40,
-    targetMoistureMax: 75,
-    normalWaterAmount: 1,
-    normalWaterUnit: "L/plant/day",
-    notes: "Seed profile; adjust for local growing conditions.",
+    crop_name: "Lettuce",
+    location: "Greenhouse B",
+    target_min: 60,
+    target_max: 80,
+    normal_water: 400,
+    notes: "",
   },
   {
-    cropName: "Corn",
-    location: "East field",
-    targetMoistureMin: 35,
-    targetMoistureMax: 70,
-    normalWaterAmount: 3,
-    normalWaterUnit: "L/plant/day",
-    notes: "Seed profile; adjust for local growing conditions.",
+    crop_name: "Wheat",
+    location: "North Field",
+    target_min: 35,
+    target_max: 55,
+    normal_water: 300,
+    notes: "",
   },
 ];
 
@@ -43,43 +40,59 @@ export const cropDatabase = new DatabaseSync(databasePath);
 cropDatabase.exec("PRAGMA journal_mode = WAL;");
 const schema = await readFile(fileURLToPath(schemaPath), "utf8");
 
-const seedCropsStatement = `
-  INSERT OR IGNORE INTO crop_cards (
-    crop_name,
-    location,
-    target_moisture_min,
-    target_moisture_max,
-    normal_water_amount,
-    normal_water_unit,
-    notes
+const insertCrop = `
+  INSERT OR IGNORE INTO crops (
+    crop_name, location, target_min, target_max, normal_water, notes
   ) VALUES (
-    $cropName,
-    $location,
-    $targetMoistureMin,
-    $targetMoistureMax,
-    $normalWaterAmount,
-    $normalWaterUnit,
-    $notes
+    $crop_name, $location, $target_min, $target_max, $normal_water, $notes
   )
 `;
 
 export function initializeDatabase(database = cropDatabase) {
-  database.exec(schema);
-  const hasSeeded = database
-    .prepare("SELECT 1 FROM app_metadata WHERE key = 'initial_crop_seeded'")
-    .get();
-  if (hasSeeded) return;
-
-  const seedCrop = database.prepare(seedCropsStatement);
-  const markSeeded = database.prepare(
-    "INSERT INTO app_metadata (key, value) VALUES ('initial_crop_seeded', 'true')",
-  );
   database.exec("BEGIN");
   try {
-    for (const crop of seedCrops) {
-      seedCrop.run(crop);
+    const tables = new Set(
+      database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map(({ name }) => name),
+    );
+    database.exec(schema);
+
+    if (tables.has("crop_cards")) {
+      const legacyCards = database.prepare("SELECT * FROM crop_cards").all();
+      const migrateCrop = database.prepare(`
+        INSERT OR IGNORE INTO crops (
+          crop_name, location, target_min, target_max, normal_water, notes, created_at
+        ) VALUES (
+          $crop_name, $location, $target_min, $target_max, $normal_water, $notes,
+          $created_at
+        )
+      `);
+      for (const crop of legacyCards) {
+        migrateCrop.run({
+          crop_name: crop.crop_name,
+          location: crop.location,
+          target_min: crop.target_moisture_min,
+          target_max: crop.target_moisture_max,
+          normal_water: crop.normal_water_amount,
+          notes: crop.notes ?? "",
+          created_at: crop.created_at,
+        });
+      }
+      database.exec("DROP TABLE crop_cards");
     }
-    markSeeded.run();
+    if (tables.has("app_metadata")) {
+      database.exec("DROP TABLE app_metadata");
+    }
+
+    const cropCount = database
+      .prepare("SELECT COUNT(*) AS count FROM crops")
+      .get().count;
+    if (cropCount === 0) {
+      const seedCrop = database.prepare(insertCrop);
+      for (const crop of seedCrops) seedCrop.run(crop);
+    }
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -91,59 +104,37 @@ initializeDatabase();
 
 export function listCropCards(database = cropDatabase) {
   return database
-    .prepare("SELECT * FROM crop_cards ORDER BY crop_name COLLATE BINARY")
+    .prepare("SELECT * FROM crops ORDER BY crop_name COLLATE BINARY")
     .all();
 }
 
 export function getCropCard(cropName, database = cropDatabase) {
   return database
-    .prepare("SELECT * FROM crop_cards WHERE crop_name = ?")
+    .prepare("SELECT * FROM crops WHERE crop_name = ?")
     .get(cropName);
 }
 
 export function createCropCard(crop, database = cropDatabase) {
-  return database
-    .prepare(`
-      INSERT INTO crop_cards (
-        crop_name,
-        location,
-        target_moisture_min,
-        target_moisture_max,
-        normal_water_amount,
-        normal_water_unit,
-        notes
-      ) VALUES (
-        $cropName,
-        $location,
-        $targetMoistureMin,
-        $targetMoistureMax,
-        $normalWaterAmount,
-        $normalWaterUnit,
-        $notes
-      )
-    `)
-    .run(crop);
+  return database.prepare(insertCrop).run(crop);
 }
 
 export function updateCropCard(cropName, crop, database = cropDatabase) {
   return database
     .prepare(`
-      UPDATE crop_cards
+      UPDATE crops
       SET location = $location,
-          target_moisture_min = $targetMoistureMin,
-          target_moisture_max = $targetMoistureMax,
-          normal_water_amount = $normalWaterAmount,
-          normal_water_unit = $normalWaterUnit,
-          notes = $notes,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-      WHERE crop_name = $cropName
+          target_min = $target_min,
+          target_max = $target_max,
+          normal_water = $normal_water,
+          notes = $notes
+      WHERE crop_name = $crop_name
     `)
-    .run({ ...crop, cropName });
+    .run({ ...crop, crop_name: cropName });
 }
 
 export function deleteCropCard(cropName, database = cropDatabase) {
   return database
-    .prepare("DELETE FROM crop_cards WHERE crop_name = ?")
+    .prepare("DELETE FROM crops WHERE crop_name = ?")
     .run(cropName);
 }
 

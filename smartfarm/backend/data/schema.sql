@@ -1,21 +1,17 @@
-CREATE TABLE IF NOT EXISTS crop_cards (
-  crop_name TEXT PRIMARY KEY COLLATE BINARY
+CREATE TABLE IF NOT EXISTS crops (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  crop_name TEXT NOT NULL COLLATE BINARY UNIQUE
     CHECK (length(trim(crop_name)) > 0),
-  location TEXT NOT NULL DEFAULT '',
-  target_moisture_min REAL NOT NULL
-    CHECK (target_moisture_min >= 0 AND target_moisture_min <= 100),
-  target_moisture_max REAL NOT NULL
-    CHECK (target_moisture_max >= 0 AND target_moisture_max <= 100),
-  normal_water_amount REAL NOT NULL
-    CHECK (normal_water_amount >= 0),
-  normal_water_unit TEXT NOT NULL DEFAULT '',
-  notes TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  CHECK (target_moisture_min <= target_moisture_max)
-);
-
-CREATE TABLE IF NOT EXISTS app_metadata (
-  key TEXT PRIMARY KEY COLLATE BINARY,
-  value TEXT NOT NULL
+  location TEXT NOT NULL
+    CHECK (length(trim(location)) BETWEEN 1 AND 100),
+  target_min REAL NOT NULL
+    CHECK (target_min >= 0 AND target_min <= 100),
+  target_max REAL NOT NULL
+    CHECK (target_max >= 0 AND target_max <= 100),
+  normal_water REAL NOT NULL
+    CHECK (normal_water > 0 AND normal_water <= 10000),
+  notes TEXT NOT NULL DEFAULT ''
+    CHECK (length(notes) <= 500),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now')),
+  CHECK (target_min < target_max)
 );

@@ -4,8 +4,7 @@ const emptyProfile = {
   location: "",
   targetMoistureMin: "30",
   targetMoistureMax: "70",
-  normalWaterAmount: "1",
-  normalWaterUnit: "L/plant/day",
+  normalWater: "500",
   notes: "",
 };
 
@@ -23,8 +22,7 @@ export default function CropCardForm({
         location: crop.location,
         targetMoistureMin: String(crop.targetMoistureMin),
         targetMoistureMax: String(crop.targetMoistureMax),
-        normalWaterAmount: String(crop.normalWaterAmount),
-        normalWaterUnit: crop.normalWaterUnit,
+        normalWater: String(crop.normalWater),
         notes: crop.notes,
       }
     : emptyProfile;
@@ -37,10 +35,35 @@ export default function CropCardForm({
       location: formData.get("location"),
       targetMoistureMin: Number(formData.get("targetMoistureMin")),
       targetMoistureMax: Number(formData.get("targetMoistureMax")),
-      normalWaterAmount: Number(formData.get("normalWaterAmount")),
-      normalWaterUnit: formData.get("normalWaterUnit"),
+      normalWater: Number(formData.get("normalWater")),
       notes: formData.get("notes"),
     });
+  }
+
+  function validateTargetRange(event) {
+    const form = event.currentTarget.form;
+    const minimum = Number(form.elements.namedItem("targetMoistureMin").value);
+    const maximum = Number(form.elements.namedItem("targetMoistureMax").value);
+    const isValid = minimum < maximum;
+    form.elements
+      .namedItem("targetMoistureMin")
+      .setCustomValidity(
+        isValid ? "" : "Minimum target must be less than maximum target.",
+      );
+    form.elements
+      .namedItem("targetMoistureMax")
+      .setCustomValidity(
+        isValid ? "" : "Maximum target must be greater than minimum target.",
+      );
+  }
+
+  function validateNormalWater(event) {
+    const input = event.currentTarget;
+    input.setCustomValidity(
+      input.value !== "" && Number(input.value) <= 0
+        ? "Normal water must be greater than 0 litres."
+        : "",
+    );
   }
 
   return (
@@ -59,7 +82,12 @@ export default function CropCardForm({
       </div>
 
       <form className="crop-form" onSubmit={handleSubmit}>
-        {!crop && (
+        {crop ? (
+          <label className="form-field form-field-wide">
+            Crop name (cannot be changed)
+            <input type="text" value={crop.cropName} disabled />
+          </label>
+        ) : (
           <label className="form-field form-field-wide">
             Crop name
             <select
@@ -85,7 +113,8 @@ export default function CropCardForm({
           <input
             name="location"
             type="text"
-            maxLength="120"
+            minLength="1"
+            maxLength="100"
             defaultValue={profile.location}
             required
           />
@@ -100,6 +129,7 @@ export default function CropCardForm({
             max="100"
             step="any"
             defaultValue={profile.targetMoistureMin}
+            onChange={validateTargetRange}
             required
           />
         </label>
@@ -113,36 +143,33 @@ export default function CropCardForm({
             max="100"
             step="any"
             defaultValue={profile.targetMoistureMax}
+            onChange={validateTargetRange}
             required
           />
         </label>
 
         <label className="form-field">
-          Normal water amount
+          Normal water (litres)
           <input
-            name="normalWaterAmount"
+            name="normalWater"
             type="number"
             min="0"
+            max="10000"
             step="any"
-            defaultValue={profile.normalWaterAmount}
-            required
-          />
-        </label>
-
-        <label className="form-field">
-          Water unit
-          <input
-            name="normalWaterUnit"
-            type="text"
-            maxLength="40"
-            defaultValue={profile.normalWaterUnit}
+            defaultValue={profile.normalWater}
+            onChange={validateNormalWater}
             required
           />
         </label>
 
         <label className="form-field form-field-wide">
           Notes
-          <textarea name="notes" maxLength="2000" rows="3" defaultValue={profile.notes} />
+          <textarea
+            name="notes"
+            maxLength="500"
+            rows="3"
+            defaultValue={profile.notes}
+          />
         </label>
 
         <div className="form-actions form-field-wide">

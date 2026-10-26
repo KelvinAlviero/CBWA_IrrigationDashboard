@@ -15,7 +15,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^$",
-          "endsPattern": "SmartFarm API listening on port 3001"
+          "endsPattern": "SmartFarm API listening on port 3002"
         }
       }
     },
@@ -33,7 +33,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^$",
-          "endsPattern": "http://localhost:5173/"
+          "endsPattern": "http://localhost:5174/"
         }
       }
     },

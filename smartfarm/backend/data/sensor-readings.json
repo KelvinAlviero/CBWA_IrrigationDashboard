@@ -1,12 +1,12 @@
 [
   {
-    "crop_name": "Tomatoes",
+    "crop_name": "Tomato",
     "timestamp": "2026-10-26T08:20:00.000Z",
     "soilMoisture": 35,
     "sensor_status": "ok"
   },
   {
-    "crop_name": "Tomatoes",
+    "crop_name": "Tomato",
     "timestamp": "2026-10-26T09:05:00.000Z",
     "soilMoisture": 24,
     "sensor_status": "ok"
@@ -21,6 +21,12 @@
     "crop_name": "Corn",
     "timestamp": "2026-10-26T09:12:00.000Z",
     "soilMoisture": 84,
+    "sensor_status": "ok"
+  },
+  {
+    "crop_name": "Wheat",
+    "timestamp": "2026-10-26T09:13:00.000Z",
+    "soilMoisture": 45,
     "sensor_status": "ok"
   },
   {

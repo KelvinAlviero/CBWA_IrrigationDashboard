@@ -30,17 +30,26 @@ Readings older than 24 hours are marked as sensor problems, and moisture outside
 
 The backend initializes a SQLite database at
 `smartfarm/backend/data/crop-cards.sqlite` when it starts. Its schema is in
-`smartfarm/backend/data/schema.sql`. The `crop_cards` table uses `crop_name` as a
-case-sensitive primary key and is seeded with Tomatoes, Lettuce, and Corn profiles.
-Seed values are examples; they are inserted only when a crop name is not already
-present, and a one-time seed marker prevents deleted seed cards from returning on
-restart. SQLite is provided by Node's built-in `node:sqlite` module, which requires
-Node.js 22.5.0 or newer.
+`smartfarm/backend/data/schema.sql`. The `crops` table contains an automatic integer
+ID and a unique, case-sensitive `crop_name`, plus location, target moisture bounds,
+normal water in litres, notes, and a SQLite-generated creation timestamp. An empty
+table is seeded with Tomato (Greenhouse A, 55–75%, 500 L), Lettuce (Greenhouse B,
+60–80%, 400 L), and Wheat (North Field, 35–55%, 300 L). Maize is not seeded. Existing
+profiles from the previous schema are migrated and preserved. SQLite is provided by
+Node's built-in `node:sqlite` module, which requires Node.js 22.5.0 or newer.
+
+Create and edit requests use `crop_name`, `location`, `target_min`, `target_max`,
+`normal_water`, and optional `notes`. Numeric values must be JSON numbers. The API
+validates moisture bounds, location length, positive water amounts up to 10,000 L,
+and notes up to 500 characters. Crop names are selected from the sensor feed; editing
+cannot change a crop name.
 
 The dashboard adds only names found in the sensor feed, stores crop-card settings in
 SQLite, and never writes to the sensor JSON. Refresh Sensor Data requests
 `GET /api/readings` and updates the cards from the returned feed and the saved crop
 profiles. Crop cards can be edited or deleted independently of their readings.
+The local API uses port 3002 and Vite uses port 5174 to avoid conflicts with older
+SmartFarm processes that may still be running on the previous ports.
 
 Run the backend API and dashboard logic tests with:
 

@@ -50,9 +50,7 @@ export default function DashboardCard({ crop, onEdit, onDelete }) {
         </div>
         <div className="crop-detail">
           <dt>Normal water</dt>
-          <dd>
-            {crop.normalWaterAmount} {crop.normalWaterUnit}
-          </dd>
+          <dd>{crop.normalWater} L</dd>
         </div>
         <div className="crop-detail">
           <dt>Last reading</dt>
