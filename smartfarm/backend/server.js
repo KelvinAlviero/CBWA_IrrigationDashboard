@@ -11,9 +11,10 @@ import {
   updateCropCard,
 } from "./db.js";
 
-const port = Number(process.env.PORT ?? 3002);
+const port = Number(process.env.PORT ?? 3004);
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8" };
 const maximumBodySize = 16 * 1024;
+const sensorCropNames = new Set(["Tomato", "Lettuce", "Wheat", "Maize"]);
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, jsonHeaders);
@@ -112,6 +113,7 @@ function getFeedCropNames(readings) {
             reading !== null &&
             typeof reading === "object" &&
             typeof reading.crop_name === "string" &&
+            sensorCropNames.has(reading.crop_name) &&
             reading.crop_name.trim().length > 0,
         )
         .map((reading) => reading.crop_name),

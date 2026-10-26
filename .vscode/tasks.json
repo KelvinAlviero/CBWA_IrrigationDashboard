@@ -4,8 +4,8 @@
     {
       "label": "Start SmartFarm API",
       "type": "shell",
-      "command": "npm",
-      "args": ["--prefix", "smartfarm", "run", "start:backend"],
+      "command": "node",
+      "args": ["smartfarm/scripts/ensure-api.js"],
       "isBackground": true,
       "problemMatcher": {
         "owner": "custom",
@@ -15,15 +15,15 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^$",
-          "endsPattern": "SmartFarm API listening on port 3002"
+          "endsPattern": "SmartFarm API listening on port 3004"
         }
       }
     },
     {
       "label": "Start SmartFarm frontend",
       "type": "shell",
-      "command": "npm",
-      "args": ["--prefix", "smartfarm", "run", "dev"],
+      "command": "node",
+      "args": ["smartfarm/scripts/ensure-frontend.js"],
       "isBackground": true,
       "problemMatcher": {
         "owner": "custom",
@@ -33,7 +33,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^$",
-          "endsPattern": "http://localhost:5174/"
+          "endsPattern": "http://localhost:5178/"
         }
       }
     },

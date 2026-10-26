@@ -8,7 +8,7 @@
             "type": "chrome",
             "request": "launch",
             "name": "Launch SmartFarm Dashboard",
-            "url": "http://localhost:5174",
+            "url": "http://localhost:5178",
             "webRoot": "${workspaceFolder}/smartfarm/frontend",
             "preLaunchTask": "Start SmartFarm"
         }

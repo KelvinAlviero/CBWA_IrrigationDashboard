@@ -2,45 +2,54 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { analyzeCropCards } from "../frontend/src/utils/analysis.js";
-import { initializeDatabase } from "./db.js";
+import { getSensorReadings, initializeDatabase } from "./db.js";
 import { createApiServer } from "./server.js";
 
 const sensorFeed = [
   {
     crop_name: "Tomato",
-    timestamp: "2026-10-26T09:00:00.000Z",
-    soilMoisture: 60,
-    sensor_status: "ok",
+    timestamp: "2026-10-26T09:00:00",
+    soil_moisture: 60,
+    temperature: 25,
+    rainfall: 0,
+    sensor_status: "Online",
+    notes: "",
   },
   {
     crop_name: "Lettuce",
-    timestamp: "2026-10-26T09:10:00.000Z",
-    soilMoisture: 70,
-    sensor_status: "ok",
+    timestamp: "2026-10-26T09:10:00",
+    soil_moisture: 70,
+    temperature: 20,
+    rainfall: 0,
+    sensor_status: "Online",
+    notes: "",
   },
   {
     crop_name: "Wheat",
-    timestamp: "2026-10-26T09:12:00.000Z",
-    soilMoisture: 45,
-    sensor_status: "ok",
+    timestamp: "2026-10-26T09:12:00",
+    soil_moisture: 45,
+    temperature: 21,
+    rainfall: 0,
+    sensor_status: "Online",
+    notes: "",
   },
   {
     crop_name: "Maize",
-    timestamp: "2026-10-26T08:00:00.000Z",
-    soilMoisture: 25,
-    sensor_status: "ok",
+    timestamp: "2026-10-26T08:00:00",
+    soil_moisture: 25,
+    temperature: 28,
+    rainfall: 0,
+    sensor_status: "Online",
+    notes: "",
   },
   {
     crop_name: "Maize",
-    timestamp: "2026-10-26T09:30:00.000Z",
-    soilMoisture: 55,
-    sensor_status: "ok",
-  },
-  {
-    crop_name: "maize",
-    timestamp: "2026-10-26T09:20:00.000Z",
-    soilMoisture: 80,
-    sensor_status: "ok",
+    timestamp: "2026-10-26T09:30:00",
+    soil_moisture: 55,
+    temperature: 29,
+    rainfall: 0,
+    sensor_status: "Online",
+    notes: "",
   },
 ];
 
@@ -55,7 +64,10 @@ const maizeProfile = {
 async function createTestApi(t, database, readings = sensorFeed) {
   const server = createApiServer({
     database,
-    readReadings: async () => structuredClone(readings),
+    readReadings: async () =>
+      structuredClone(
+        typeof readings === "function" ? await readings() : readings,
+      ),
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -90,6 +102,53 @@ async function createTestApi(t, database, readings = sensorFeed) {
     put: (path, body) => sendJson("PUT", path, body),
   };
 }
+
+test("static sensor file contains exactly five valid readings for each supported crop", async () => {
+  const readings = await getSensorReadings();
+  const expectedCrops = ["Tomato", "Lettuce", "Wheat", "Maize"];
+  const readingsByCrop = new Map(expectedCrops.map((cropName) => [cropName, []]));
+  const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+
+  assert.equal(readings.length, 20);
+  for (const reading of readings) {
+    assert.ok(readingsByCrop.has(reading.crop_name));
+    assert.match(reading.timestamp, timestampPattern);
+    assert.ok(Number.isFinite(Date.parse(`${reading.timestamp}Z`)));
+    assert.equal(typeof reading.soil_moisture, "number");
+    assert.ok(reading.soil_moisture >= 0 && reading.soil_moisture <= 100);
+    assert.equal(typeof reading.temperature, "number");
+    assert.ok(reading.temperature >= 0 && reading.temperature <= 50);
+    assert.equal(typeof reading.rainfall, "number");
+    assert.ok(reading.rainfall >= 0 && reading.rainfall <= 50);
+    assert.ok(["Online", "Offline", "Faulty"].includes(reading.sensor_status));
+    assert.equal(typeof reading.notes, "string");
+    readingsByCrop.get(reading.crop_name).push(reading.timestamp);
+  }
+
+  for (const timestamps of readingsByCrop.values()) {
+    assert.equal(timestamps.length, 5);
+    assert.equal(new Set(timestamps).size, 5);
+  }
+});
+
+test("readings endpoint invokes the sensor-file reader for every request", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  initializeDatabase(database);
+  let readCount = 0;
+  let latestReading = sensorFeed[0];
+  const api = await createTestApi(t, database, () => {
+    readCount += 1;
+    return [latestReading];
+  });
+
+  const firstResponse = await api.request("/api/readings");
+  assert.equal(firstResponse.body[0].soil_moisture, 60);
+
+  latestReading = { ...latestReading, soil_moisture: 42 };
+  const refreshedResponse = await api.request("/api/readings");
+  assert.equal(refreshedResponse.body[0].soil_moisture, 42);
+  assert.equal(readCount, 2);
+});
 
 test("empty database receives exactly the specified three seed crops", () => {
   const database = new DatabaseSync(":memory:");
@@ -166,7 +225,7 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
 
   const options = await api.request("/api/crop-options");
   assert.equal(options.response.status, 200);
-  assert.deepEqual(options.body, ["Maize", "maize"]);
+  assert.deepEqual(options.body, ["Maize"]);
 
   const created = await api.post("/api/crops", {
     crop_name: "Maize",
@@ -181,20 +240,11 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
   assert.ok(Number.isInteger(created.body.id));
   assert.ok(created.body.created_at);
 
-  const caseDistinctCrop = await api.post("/api/crops", {
+  const invalidCase = await api.post("/api/crops", {
     crop_name: "maize",
-    location: "S".repeat(100),
-    target_min: 0,
-    target_max: 100,
-    normal_water: 10000,
-    notes: "n".repeat(500),
+    ...maizeProfile,
   });
-  assert.equal(caseDistinctCrop.response.status, 201);
-  assert.equal(caseDistinctCrop.body.crop_name, "maize");
-  assert.equal(caseDistinctCrop.body.location.length, 100);
-  assert.equal(caseDistinctCrop.body.notes.length, 500);
-  assert.equal(caseDistinctCrop.body.normal_water, 10000);
-  await api.request("/api/crops/maize", { method: "DELETE" });
+  assert.equal(invalidCase.response.status, 400);
 
   const duplicate = await api.post("/api/crops", {
     crop_name: "Maize",
@@ -219,10 +269,10 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
       },
     ],
     readingsAtCreate.body,
-    Date.parse("2026-10-26T10:00:00.000Z"),
+    Date.parse("2026-10-26T10:00:00Z"),
   );
   assert.equal(combinedMaize.moisture, 55);
-  assert.equal(combinedMaize.timestamp, Date.parse("2026-10-26T09:30:00.000Z"));
+  assert.equal(combinedMaize.timestamp, Date.parse("2026-10-26T09:30:00Z"));
   assert.equal(combinedMaize.status, "Healthy");
 
   const updated = await api.put("/api/crops/Maize", {
@@ -256,7 +306,7 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
       },
     ],
     readingsAtCreate.body,
-    Date.parse("2026-10-26T10:00:00.000Z"),
+    Date.parse("2026-10-26T10:00:00Z"),
   );
   assert.equal(combinedMaize.status, "Dry");
 
@@ -275,10 +325,7 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
     false,
   );
   assert.deepEqual((await api.request("/api/readings")).body, feedSnapshot);
-  assert.deepEqual((await api.request("/api/crop-options")).body, [
-    "Maize",
-    "maize",
-  ]);
+  assert.deepEqual((await api.request("/api/crop-options")).body, ["Maize"]);
 
   const reCreated = await api.post("/api/crops", {
     crop_name: "Maize",
