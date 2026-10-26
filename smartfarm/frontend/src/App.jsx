@@ -1,136 +1,195 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import CropCardForm from "./components/CropCardForm.jsx";
 import DashboardCard from "./components/DashboardCard.jsx";
 import {
   createCropCard,
   deleteCropCard,
   getCropCards,
-  getCropOptions,
   getReadings,
   updateCropCard,
 } from "./services/api.js";
 import {
-  analyzeCropCards,
+  analyseCropCards,
+  calculateFarmStatus,
   createUnavailableCropCards,
-  getOverallFarmStatus,
+  getAvailableCropNames,
 } from "./utils/analysis.js";
-
-async function loadDashboardData() {
-  const [cropCardsResult, readingsResult] = await Promise.allSettled([
-    getCropCards(),
-    getReadings(),
-  ]);
-  if (cropCardsResult.status === "rejected") throw cropCardsResult.reason;
-  return {
-    cropCards: cropCardsResult.value,
-    readings: readingsResult.status === "fulfilled" ? readingsResult.value : null,
-    readingsError:
-      readingsResult.status === "rejected" ? readingsResult.reason : null,
-  };
-}
 
 export default function App() {
   const [cropProfiles, setCropProfiles] = useState(null);
   const [sensorReadings, setSensorReadings] = useState(null);
-  const [error, setError] = useState("");
+  const [hasAttemptedSensorRequest, setHasAttemptedSensorRequest] =
+    useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
+  const [cropError, setCropError] = useState("");
+  const [sensorError, setSensorError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [isLoadingCrops, setIsLoadingCrops] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [formCrop, setFormCrop] = useState(null);
-  const [cropOptions, setCropOptions] = useState([]);
   const [newCropName, setNewCropName] = useState("");
-  const crops =
-    cropProfiles === null
-      ? null
-      : sensorReadings === null
-        ? createUnavailableCropCards(cropProfiles)
-        : analyzeCropCards(cropProfiles, sensorReadings);
-  const overallFarmStatus =
-    crops === null ? null : getOverallFarmStatus(crops, sensorReadings !== null);
+  const [historyCropName, setHistoryCropName] = useState(null);
 
-  const refreshReadings = useCallback(async () => {
-    setIsRefreshing(true);
-    setError("");
+  const loadCropCards = useCallback(async () => {
+    setIsLoadingCrops(true);
+    setCropError("");
     try {
-      const dashboardData = await loadDashboardData();
-      setCropProfiles(dashboardData.cropCards);
-      if (dashboardData.readings !== null) {
-        setSensorReadings(dashboardData.readings);
-        setLastUpdated(new Date());
-      } else {
-        setError(
-          `Could not load sensor data: ${dashboardData.readingsError.message}`,
-        );
-      }
-    } catch (refreshError) {
-      setError(`Could not load crop cards: ${refreshError.message}`);
+      const crops = await getCropCards();
+      setCropProfiles(crops);
+      return true;
+    } catch (error) {
+      setCropError(`Could not load crop cards: ${error.message}`);
+      return false;
+    } finally {
+      setIsLoadingCrops(false);
+    }
+  }, []);
+
+  const refreshSensorData = useCallback(async ({ initial = false } = {}) => {
+    setIsRefreshing(true);
+    setSensorError("");
+    try {
+      const readings = await getReadings();
+      setSensorReadings(readings);
+      setHasAttemptedSensorRequest(true);
+      setLastRefresh(new Date());
+      return true;
+    } catch (error) {
+      setHasAttemptedSensorRequest(true);
+      setSensorError(
+        `${initial ? "Could not load" : "Could not refresh"} sensor data: ${error.message}`,
+      );
+      return false;
     } finally {
       setIsRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    void refreshReadings();
-  }, [refreshReadings]);
-
-  async function openAddForm() {
-    setError("");
-    try {
-      const options = await getCropOptions();
-      setCropOptions(options);
-      setNewCropName(options[0] ?? "");
-      setFormCrop({ mode: "add" });
-    } catch (loadError) {
-      setError(`Could not load available crops: ${loadError.message}`);
+    let isMounted = true;
+    async function loadInitialData() {
+      setIsLoadingCrops(true);
+      setIsRefreshing(true);
+      setCropError("");
+      setSensorError("");
+      void getCropCards()
+        .then((crops) => {
+          if (isMounted) {
+            setCropProfiles(crops);
+            setCropError("");
+          }
+        })
+        .catch((error) => {
+          if (isMounted) {
+            setCropError(`Could not load crop cards: ${error.message}`);
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsLoadingCrops(false);
+        });
+      void getReadings()
+        .then((readings) => {
+          if (isMounted) {
+            setSensorReadings(readings);
+            setHasAttemptedSensorRequest(true);
+            setLastRefresh(new Date());
+            setSensorError("");
+          }
+        })
+        .catch((error) => {
+          if (isMounted) {
+            setHasAttemptedSensorRequest(true);
+            setSensorError(`Could not load sensor data: ${error.message}`);
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsRefreshing(false);
+        });
     }
+
+    void loadInitialData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const results = useMemo(() => {
+    if (cropProfiles === null || !hasAttemptedSensorRequest) return null;
+    return sensorReadings === null
+      ? createUnavailableCropCards(cropProfiles)
+      : analyseCropCards(cropProfiles, sensorReadings);
+  }, [cropProfiles, sensorReadings, hasAttemptedSensorRequest]);
+  const farmStatus =
+    results === null
+      ? null
+      : calculateFarmStatus(results, sensorReadings !== null);
+  const availableCropNames =
+    cropProfiles === null ||
+    sensorReadings === null ||
+    !hasAttemptedSensorRequest
+      ? []
+      : getAvailableCropNames(sensorReadings, cropProfiles);
+
+  function openAddForm() {
+    if (cropProfiles === null || sensorReadings === null) return;
+    setActionError("");
+    setSuccessMessage("");
+    setNewCropName(availableCropNames[0] ?? "");
+    setFormCrop({ mode: "add" });
   }
 
   async function handleSave(profile) {
     setIsSaving(true);
-    setError("");
+    setActionError("");
+    setSuccessMessage("");
     try {
-      if (formCrop?.mode === "edit") {
-        await updateCropCard(formCrop.crop.cropName, profile);
-      } else {
-        await createCropCard(profile.cropName, profile);
-      }
-      const dashboardData = await loadDashboardData();
-      setCropProfiles(dashboardData.cropCards);
-      if (dashboardData.readings !== null) {
-        setSensorReadings(dashboardData.readings);
-        setLastUpdated(new Date());
-      } else {
-        setError(
-          `Could not load sensor data: ${dashboardData.readingsError.message}`,
+      const savedCrop =
+        formCrop?.mode === "edit"
+          ? await updateCropCard(formCrop.crop.id, profile)
+          : await createCropCard(profile.cropName, profile);
+      setCropProfiles((current) => {
+        if (formCrop?.mode === "edit") {
+          return current.map((crop) =>
+            crop.cropName === savedCrop.cropName ? savedCrop : crop,
+          );
+        }
+        return [...current, savedCrop].sort((a, b) =>
+          a.cropName.localeCompare(b.cropName),
         );
-      }
+      });
       setFormCrop(null);
-    } catch (saveError) {
-      setError(`Could not save crop card: ${saveError.message}`);
+      setSuccessMessage(
+        formCrop?.mode === "edit"
+          ? "Crop Card updated successfully."
+          : "Crop Card created successfully.",
+      );
+    } catch (error) {
+      setActionError(`Could not save crop card: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
   }
 
-  async function handleDelete(cropName) {
-    setError("");
+  async function handleDelete(cropId) {
+    setActionError("");
+    setSuccessMessage("");
     try {
-      await deleteCropCard(cropName);
-      const dashboardData = await loadDashboardData();
-      setCropProfiles(dashboardData.cropCards);
-      if (dashboardData.readings !== null) {
-        setSensorReadings(dashboardData.readings);
-        setLastUpdated(new Date());
-      } else {
-        setError(
-          `Could not load sensor data: ${dashboardData.readingsError.message}`,
-        );
-      }
-      if (formCrop?.mode === "edit" && formCrop.crop.cropName === cropName) {
+      await deleteCropCard(cropId);
+      const deletedCropName = cropProfiles.find(
+        (crop) => crop.id === cropId,
+      )?.cropName;
+      setCropProfiles((current) =>
+        current.filter((crop) => crop.id !== cropId),
+      );
+      if (formCrop?.mode === "edit" && formCrop.crop.id === cropId) {
         setFormCrop(null);
       }
-    } catch (deleteError) {
-      setError(`Could not delete crop card: ${deleteError.message}`);
+      if (historyCropName === deletedCropName) setHistoryCropName(null);
+      setSuccessMessage("Crop Card deleted successfully.");
+    } catch (error) {
+      setActionError(`Could not delete crop card: ${error.message}`);
     }
   }
 
@@ -148,25 +207,37 @@ export default function App() {
           <div className="panel-heading">
             <div>
               <p className="eyebrow">SENSOR OVERVIEW</p>
-              <h1 id="dashboard-title">Crop conditions</h1>
+              <h1 id="dashboard-title">SmartFarm Crop Dashboard</h1>
               <p className="panel-description">
                 Manage crop profiles and view their latest sensor readings.
               </p>
+              {cropProfiles !== null && (
+                <p className="panel-description crop-count">
+                  Crop Cards: {cropProfiles.length}
+                </p>
+              )}
             </div>
             <div className="panel-actions">
               <button
                 className="secondary-button"
                 type="button"
                 onClick={openAddForm}
-                disabled={isSaving || isRefreshing}
+                disabled={
+                  cropProfiles === null ||
+                  sensorReadings === null ||
+                  !hasAttemptedSensorRequest ||
+                  isSaving ||
+                  isRefreshing ||
+                  availableCropNames.length === 0
+                }
               >
                 Add Crop Card
               </button>
               <button
                 className="refresh-button"
                 type="button"
-                onClick={refreshReadings}
-                disabled={isRefreshing || isSaving}
+                onClick={() => void refreshSensorData()}
+                disabled={isRefreshing || isSaving || cropProfiles === null}
               >
                 <span aria-hidden="true">{isRefreshing ? "↻" : "⟳"}</span>
                 {isRefreshing ? "Refreshing..." : "Refresh Sensor Data"}
@@ -174,26 +245,42 @@ export default function App() {
             </div>
           </div>
 
-          {overallFarmStatus && (
+          {farmStatus && (
             <div className="farm-status" aria-live="polite">
               <span>Overall Farm Status</span>
               <strong
-                className={`status-badge farm-status-${overallFarmStatus
+                className={`status-badge farm-status-${farmStatus
                   .toLowerCase()
                   .replaceAll(" ", "-")}`}
               >
-                {overallFarmStatus}
+                {farmStatus}
               </strong>
             </div>
           )}
 
-          {error && (
-            <p className="message error-message" role="alert">
-              {error}
+          {(cropError || sensorError || actionError) && (
+            <div className="message error-message" role="alert">
+              <p>{[cropError, sensorError, actionError].filter(Boolean).join(" ")}</p>
+              {cropError && cropProfiles === null && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void loadCropCards()}
+                  disabled={isLoadingCrops}
+                >
+                  {isLoadingCrops ? "Retrying..." : "Retry"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {successMessage && (
+            <p className="message success-message" role="status">
+              {successMessage}
             </p>
           )}
 
-          {formCrop && (
+          {formCrop && cropProfiles !== null && sensorReadings !== null && (
             <CropCardForm
               key={
                 formCrop.mode === "edit"
@@ -201,7 +288,7 @@ export default function App() {
                   : "add-crop"
               }
               crop={formCrop.mode === "edit" ? formCrop.crop : null}
-              cropOptions={cropOptions}
+              cropOptions={availableCropNames}
               cropName={newCropName}
               onCropNameChange={setNewCropName}
               onCancel={() => setFormCrop(null)}
@@ -210,37 +297,59 @@ export default function App() {
             />
           )}
 
-          {crops === null ? (
-            !error && (
-              <p className="message" role="status">
-                Loading crop cards and sensor readings...
-              </p>
-            )
-          ) : crops.length === 0 ? (
+          {cropProfiles === null ? (
+            <p className="message" role="status">
+              {isLoadingCrops
+                ? "Loading crop cards and sensor readings..."
+                : cropError
+                  ? "Crop cards are unavailable until loading succeeds."
+                  : "Loading crop cards..."}
+            </p>
+          ) : results === null ? (
+            <p className="message" role="status">
+              Loading sensor readings...
+            </p>
+          ) : results.length === 0 ? (
             <p className="empty-state">
               No crop cards yet. Add a card for a crop in the sensor feed.
             </p>
           ) : (
             <div className="crop-grid">
-              {crops.map((crop) => (
-                <DashboardCard
-                  crop={crop}
-                  key={crop.cropName}
-                  onEdit={(selectedCrop) =>
-                    setFormCrop({ mode: "edit", crop: selectedCrop })
-                  }
-                  onDelete={handleDelete}
-                />
-              ))}
+              {results.map((result) => {
+                const cropProfile = cropProfiles.find(
+                  (crop) => crop.cropName === result.crop.crop_name,
+                );
+                return (
+                  <DashboardCard
+                    crop={result}
+                    key={result.crop.id}
+                    onEdit={() =>
+                      setFormCrop({ mode: "edit", crop: cropProfile })
+                    }
+                    onDelete={() => void handleDelete(result.crop.id)}
+                    onToggleHistory={() =>
+                      setHistoryCropName((current) =>
+                        current === result.crop.crop_name
+                          ? null
+                          : result.crop.crop_name,
+                      )
+                    }
+                    isHistoryOpen={historyCropName === result.crop.crop_name}
+                    readings={
+                      sensorReadings?.filter(
+                        (reading) =>
+                          reading.crop_name === result.crop.crop_name,
+                      ) ?? []
+                    }
+                  />
+                );
+              })}
             </div>
           )}
 
           <p className="reading-count" aria-live="polite">
-            {lastUpdated
-              ? `Updated ${lastUpdated.toLocaleTimeString()}`
-              : sensorReadings === null
-                ? "Waiting for the first successful sensor request"
-                : "Sensor data loaded"}
+            Last refresh:{" "}
+            {lastRefresh ? lastRefresh.toLocaleTimeString() : "Never"}
           </p>
         </section>
       </main>

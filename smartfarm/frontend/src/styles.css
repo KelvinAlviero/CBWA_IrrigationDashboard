@@ -140,6 +140,10 @@ h1 {
   font-size: 0.9rem;
 }
 
+.crop-count {
+  font-weight: 600;
+}
+
 .refresh-button {
   display: inline-flex;
   min-height: 42px;
@@ -257,6 +261,44 @@ h1 {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.sensor-history {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #dce1dd;
+}
+
+.sensor-history h3 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.sensor-history ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sensor-history li {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border-radius: 8px;
+  background: #f6f8f6;
+  font-size: 0.76rem;
+}
+
+.sensor-history li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sensor-history li span {
+  color: var(--muted);
 }
 
 .crop-card-actions {
@@ -447,6 +489,10 @@ h1 {
 
 .error-message {
   color: #a83c32;
+}
+
+.success-message {
+  color: #216d48;
 }
 
 @media (max-width: 560px) {

@@ -79,16 +79,20 @@ export async function createCropCard(cropName, crop) {
   return fromDatabaseRow(row);
 }
 
-export async function updateCropCard(cropName, crop) {
-  const row = await requestJson(`/api/crops/${encodeURIComponent(cropName)}`, {
+export async function getCropCard(id) {
+  return fromDatabaseRow(await requestJson(`/api/crops/${id}`));
+}
+
+export async function updateCropCard(id, crop) {
+  const row = await requestJson(`/api/crops/${id}`, {
     method: "PUT",
     body: JSON.stringify(toDatabaseFields(crop, false)),
   });
   return fromDatabaseRow(row);
 }
 
-export async function deleteCropCard(cropName) {
-  return requestJson(`/api/crops/${encodeURIComponent(cropName)}`, {
+export async function deleteCropCard(id) {
+  return requestJson(`/api/crops/${id}`, {
     method: "DELETE",
   });
 }

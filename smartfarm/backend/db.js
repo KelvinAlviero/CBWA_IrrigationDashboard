@@ -114,11 +114,15 @@ export function getCropCard(cropName, database = cropDatabase) {
     .get(cropName);
 }
 
+export function getCropCardById(id, database = cropDatabase) {
+  return database.prepare("SELECT * FROM crops WHERE id = ?").get(id);
+}
+
 export function createCropCard(crop, database = cropDatabase) {
   return database.prepare(insertCrop).run(crop);
 }
 
-export function updateCropCard(cropName, crop, database = cropDatabase) {
+export function updateCropCardById(id, crop, database = cropDatabase) {
   return database
     .prepare(`
       UPDATE crops
@@ -127,15 +131,15 @@ export function updateCropCard(cropName, crop, database = cropDatabase) {
           target_max = $target_max,
           normal_water = $normal_water,
           notes = $notes
-      WHERE crop_name = $crop_name
+      WHERE id = $id
     `)
-    .run({ ...crop, crop_name: cropName });
+    .run({ ...crop, id });
 }
 
-export function deleteCropCard(cropName, database = cropDatabase) {
+export function deleteCropCardById(id, database = cropDatabase) {
   return database
-    .prepare("DELETE FROM crops WHERE crop_name = ?")
-    .run(cropName);
+    .prepare("DELETE FROM crops WHERE id = ?")
+    .run(id);
 }
 
 export async function getSensorReadings() {

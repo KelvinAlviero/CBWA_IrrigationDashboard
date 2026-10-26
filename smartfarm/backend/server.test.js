@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { analyzeCropCards } from "../frontend/src/utils/analysis.js";
+import {
+  analyseCrop,
+  getLatestReading,
+} from "../frontend/src/utils/analysis.js";
 import { getSensorReadings, initializeDatabase } from "./db.js";
 import { createApiServer } from "./server.js";
 
@@ -204,6 +207,20 @@ test("readings endpoint invokes the sensor-file reader for every request", async
   assert.equal(readCount, 2);
 });
 
+test("unexpected database failures use the JSON internal-server-error contract", async (t) => {
+  const database = {
+    prepare() {
+      throw new Error("database unavailable");
+    },
+    close() {},
+  };
+  const api = await createTestApi(t, database);
+  const response = await api.request("/api/crops");
+
+  assert.equal(response.response.status, 500);
+  assert.deepEqual(response.body, { error: "Internal server error" });
+});
+
 test("empty database receives exactly the specified three seed crops", () => {
   const database = new DatabaseSync(":memory:");
   initializeDatabase(database);
@@ -293,43 +310,43 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
   assert.equal(created.body.notes, "");
   assert.ok(Number.isInteger(created.body.id));
   assert.ok(created.body.created_at);
+  const readById = await api.request(`/api/crops/${created.body.id}`);
+  assert.equal(readById.response.status, 200);
+  assert.equal(readById.body.crop_name, "Maize");
+  const missingId = await api.request("/api/crops/99999");
+  assert.equal(missingId.response.status, 404);
+  assert.deepEqual(missingId.body, { error: "Crop card not found" });
 
   const invalidCase = await api.post("/api/crops", {
     crop_name: "maize",
     ...maizeProfile,
   });
   assert.equal(invalidCase.response.status, 400);
+  assert.deepEqual(invalidCase.body, {
+    error: "crop_name does not exist in sensor data",
+  });
 
   const duplicate = await api.post("/api/crops", {
     crop_name: "Maize",
     ...maizeProfile,
   });
   assert.equal(duplicate.response.status, 409);
+  assert.deepEqual(duplicate.body, { error: "crop_name already exists" });
 
   const readingsAtCreate = await api.request("/api/readings");
   assert.deepEqual(readingsAtCreate.body, feedSnapshot);
   let maize = (await api.request("/api/crops")).body.find(
     ({ crop_name }) => crop_name === "Maize",
   );
-  let [combinedMaize] = analyzeCropCards(
-    [
-      {
-        cropName: maize.crop_name,
-        location: maize.location,
-        targetMoistureMin: maize.target_min,
-        targetMoistureMax: maize.target_max,
-        normalWater: maize.normal_water,
-        notes: maize.notes,
-      },
-    ],
-    readingsAtCreate.body,
-    Date.parse("2026-10-26T10:00:00Z"),
+  let combinedMaize = analyseCrop(
+    maize,
+    getLatestReading("Maize", readingsAtCreate.body),
   );
-  assert.equal(combinedMaize.moisture, 55);
-  assert.equal(combinedMaize.timestamp, Date.parse("2026-10-26T10:00:00Z"));
-  assert.equal(combinedMaize.status, "Healthy");
+  assert.equal(combinedMaize.latest_reading.soil_moisture, 55);
+  assert.equal(combinedMaize.latest_reading.timestamp, "2026-10-26T10:00:00");
+  assert.equal(combinedMaize.condition, "Healthy");
 
-  const updated = await api.put("/api/crops/Maize", {
+  const updated = await api.put(`/api/crops/${maize.id}`, {
     ...maizeProfile,
     location: "West Field",
     target_min: 60,
@@ -338,7 +355,7 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
   assert.equal(updated.body.crop_name, "Maize");
   assert.equal(updated.body.location, "West Field");
   assert.equal(updated.body.target_min, 60);
-  const unchangedNameUpdate = await api.put("/api/crops/Maize", {
+  const unchangedNameUpdate = await api.put(`/api/crops/${maize.id}`, {
     crop_name: "Maize",
     ...maizeProfile,
     location: "West Field",
@@ -348,30 +365,26 @@ test("crop-card API supports exact feed options, create, read, update, delete, a
   maize = (await api.request("/api/crops")).body.find(
     ({ crop_name }) => crop_name === "Maize",
   );
-  [combinedMaize] = analyzeCropCards(
-    [
-      {
-        cropName: maize.crop_name,
-        location: maize.location,
-        targetMoistureMin: maize.target_min,
-        targetMoistureMax: maize.target_max,
-        normalWater: maize.normal_water,
-        notes: maize.notes,
-      },
-    ],
-    readingsAtCreate.body,
-    Date.parse("2026-10-26T10:00:00Z"),
+  combinedMaize = analyseCrop(
+    maize,
+    getLatestReading("Maize", readingsAtCreate.body),
   );
-  assert.equal(combinedMaize.status, "Dry");
+  assert.equal(combinedMaize.condition, "Dry");
 
-  const changedName = await api.put("/api/crops/Maize", {
+  const changedName = await api.put(`/api/crops/${maize.id}`, {
     crop_name: "maize",
     ...maizeProfile,
   });
   assert.equal(changedName.response.status, 400);
+  assert.deepEqual(changedName.body, {
+    error: "crop_name cannot be changed",
+  });
 
-  const deleted = await api.request("/api/crops/Maize", { method: "DELETE" });
-  assert.equal(deleted.response.status, 204);
+  const deleted = await api.request(`/api/crops/${maize.id}`, {
+    method: "DELETE",
+  });
+  assert.equal(deleted.response.status, 200);
+  assert.deepEqual(deleted.body, { deleted: true, id: maize.id });
   assert.equal(
     (await api.request("/api/crops")).body.some(
       (crop) => crop.crop_name === "Maize",
@@ -421,6 +434,19 @@ test("crop API rejects invalid types, ranges, lengths, and user-supplied automat
     });
     assert.equal(result.response.status, 400, JSON.stringify(profile));
   }
+  const missingLocation = await api.post("/api/crops", {
+    crop_name: "Maize",
+    ...maizeProfile,
+    location: undefined,
+  });
+  assert.equal(missingLocation.response.status, 400);
+  assert.deepEqual(missingLocation.body, { error: "location is required" });
+  const missingCropName = await api.post("/api/crops", {
+    ...maizeProfile,
+    location: "South Field",
+  });
+  assert.equal(missingCropName.response.status, 400);
+  assert.deepEqual(missingCropName.body, { error: "crop_name is required" });
 
   const malformedJson = await api.request("/api/crops", {
     method: "POST",
@@ -434,7 +460,7 @@ test("crop API rejects invalid types, ranges, lengths, and user-supplied automat
     ...maizeProfile,
   });
   assert.equal(created.response.status, 201);
-  const badUpdate = await api.put("/api/crops/Maize", {
+  const badUpdate = await api.put(`/api/crops/${created.body.id}`, {
     ...maizeProfile,
     normal_water: "600",
   });

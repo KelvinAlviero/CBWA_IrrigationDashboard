@@ -1,38 +1,60 @@
 import React from "react";
+import SensorHistory from "./SensorHistory.jsx";
 
 const statusClasses = {
   Dry: "dry",
   Healthy: "healthy",
-  "Sensor OK": "healthy",
   "Too Wet": "too-wet",
   "Sensor Problem": "sensor-problem",
   "Sensor Feed Unavailable": "sensor-problem",
   "Invalid Data": "invalid-data",
 };
 
-export default function DashboardCard({ crop, onEdit, onDelete }) {
-  const timestamp = crop.timestamp
-    ? new Date(crop.timestamp).toLocaleString()
+export default function DashboardCard({
+  crop,
+  onEdit,
+  onDelete,
+  onToggleHistory,
+  isHistoryOpen,
+  readings,
+}) {
+  const timestamp = crop.latest_reading?.timestamp
+    ? new Date(`${crop.latest_reading.timestamp}Z`).toLocaleString()
     : "Unavailable";
   const moisture =
-    typeof crop.moisture === "number" && Number.isFinite(crop.moisture)
-      ? `${crop.moisture}%`
+    typeof crop.latest_reading?.soil_moisture === "number" &&
+    Number.isFinite(crop.latest_reading.soil_moisture)
+      ? `${crop.latest_reading.soil_moisture}%`
+      : "Unavailable";
+  const temperature =
+    typeof crop.latest_reading?.temperature === "number" &&
+    Number.isFinite(crop.latest_reading.temperature)
+      ? `${crop.latest_reading.temperature} °C`
+      : "Unavailable";
+  const rainfall =
+    typeof crop.latest_reading?.rainfall === "number" &&
+    Number.isFinite(crop.latest_reading.rainfall)
+      ? `${crop.latest_reading.rainfall} mm`
       : "Unavailable";
 
   return (
     <article className="crop-card">
       <div className="crop-card-heading">
-        <h2>{crop.cropName}</h2>
-        <span className={`status-badge ${statusClasses[crop.status]}`}>
-          {crop.status}
+        <h2>{crop.crop.crop_name}</h2>
+        <span className={`status-badge ${statusClasses[crop.condition]}`}>
+          {crop.condition}
         </span>
       </div>
       <dl className="crop-details">
         <div className="crop-detail">
           <dt>Sensor health</dt>
-          <dd className={`sensor-health ${statusClasses[crop.sensorHealth]}`}>
+          <dd className={`sensor-health ${statusClasses[crop.condition]}`}>
             <span aria-hidden="true" />
-            {crop.sensorHealth}
+            {crop.condition === "Healthy" ||
+            crop.condition === "Dry" ||
+            crop.condition === "Too Wet"
+              ? "Sensor OK"
+              : crop.condition}
           </dd>
         </div>
         <div className="crop-detail">
@@ -40,8 +62,16 @@ export default function DashboardCard({ crop, onEdit, onDelete }) {
           <dd>{moisture}</dd>
         </div>
         <div className="crop-detail">
+          <dt>Temperature</dt>
+          <dd>{temperature}</dd>
+        </div>
+        <div className="crop-detail">
+          <dt>Rainfall</dt>
+          <dd>{rainfall}</dd>
+        </div>
+        <div className="crop-detail">
           <dt>Recommended water</dt>
-          <dd>{crop.recommendedWater}</dd>
+          <dd>{crop.recommended_water}</dd>
         </div>
         <div className="crop-detail">
           <dt>Action</dt>
@@ -50,25 +80,25 @@ export default function DashboardCard({ crop, onEdit, onDelete }) {
         <div className="crop-detail">
           <dt>Target range</dt>
           <dd>
-            {crop.targetMoistureMin}–{crop.targetMoistureMax}%
+            {crop.crop.target_min}–{crop.crop.target_max}%
           </dd>
         </div>
         <div className="crop-detail">
           <dt>Location</dt>
-          <dd>{crop.location}</dd>
+          <dd>{crop.crop.location}</dd>
         </div>
         <div className="crop-detail">
           <dt>Normal water</dt>
-          <dd>{crop.normalWater} L</dd>
+          <dd>{crop.crop.normal_water} L</dd>
         </div>
         <div className="crop-detail">
           <dt>Last reading</dt>
           <dd>{timestamp}</dd>
         </div>
       </dl>
-      {crop.invalidFields.length > 0 && (
+      {crop.invalid_fields.length > 0 && (
         <p className="crop-alert invalid-data" role="alert">
-          Invalid field: {crop.invalidFields.join(", ")}
+          Invalid field: {crop.invalid_fields.join(", ")}
         </p>
       )}
       {crop.alerts.length > 0 && (
@@ -80,23 +110,33 @@ export default function DashboardCard({ crop, onEdit, onDelete }) {
           ))}
         </ul>
       )}
-      {crop.notes && <p className="crop-notes">{crop.notes}</p>}
+      {crop.crop.notes && <p className="crop-notes">{crop.crop.notes}</p>}
       <div className="crop-card-actions">
         <button
           className="secondary-button"
           type="button"
-          onClick={() => onEdit(crop)}
+          onClick={onToggleHistory}
+        >
+          {isHistoryOpen ? "Hide history" : "Sensor History"}
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={onEdit}
         >
           Edit
         </button>
         <button
           className="delete-button"
           type="button"
-          onClick={() => onDelete(crop.cropName)}
+          onClick={onDelete}
         >
           Delete
         </button>
       </div>
+      {isHistoryOpen && (
+        <SensorHistory crop={crop.crop} readings={readings} />
+      )}
     </article>
   );
 }

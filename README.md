@@ -53,11 +53,27 @@ validates moisture bounds, location length, positive water amounts up to 10,000 
 and notes up to 500 characters. Crop names are selected from the sensor feed; editing
 cannot change a crop name.
 
+Crop Card routes use SQLite IDs: `GET /api/crops/:id`, `PUT /api/crops/:id`, and
+`DELETE /api/crops/:id`. Delete returns HTTP 200 with `{ "deleted": true, "id": n }`.
+API errors are JSON objects containing an `error` message; unexpected backend
+failures return HTTP 500 with `Internal server error`.
+
 The dashboard adds only names found in the sensor feed, stores crop-card settings in
 SQLite, and never writes to the sensor JSON. `GET /api/readings` reads the JSON file
 on every request, so Refresh Sensor Data picks up file changes without restarting
 the API. Crop-card CRUD never modifies the sensor JSON. Crop cards can be edited or
 deleted independently of their readings.
+
+On load, the frontend requests Crop Cards and sensor readings independently. Crop
+Card failures show a Retry action; sensor failures preserve loaded Crop Cards and
+show Sensor Feed Unavailable until a successful sensor response. Refresh replaces
+the in-memory readings only on success. The “Last refresh” time is held in React
+state, starts as “Never”, and changes only after a successful readings request.
+Create options are derived from the current readings and Crop Cards. The reusable
+analysis functions live in
+[`analysis.js`](./smartfarm/frontend/src/utils/analysis.js); dashboard cards and
+their Sensor History view use the same per-reading analysis.
+
 The local API uses port 3004 and Vite uses port 5178 to avoid conflicts with older
 SmartFarm processes that may still be running on the previous ports.
 
