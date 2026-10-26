@@ -24,6 +24,18 @@
     "sensor_status": "ok"
   },
   {
+    "crop_name": "Maize",
+    "timestamp": "2026-10-26T08:45:00.000Z",
+    "soilMoisture": 42,
+    "sensor_status": "ok"
+  },
+  {
+    "crop_name": "Maize",
+    "timestamp": "2026-10-26T09:18:00.000Z",
+    "soilMoisture": 48,
+    "sensor_status": "ok"
+  },
+  {
     "crop_name": "Strawberries",
     "timestamp": "2026-10-26T09:14:00.000Z",
     "soilMoisture": 52,

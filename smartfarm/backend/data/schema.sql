@@ -14,3 +14,8 @@ CREATE TABLE IF NOT EXISTS crop_cards (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   CHECK (target_moisture_min <= target_moisture_max)
 );
+
+CREATE TABLE IF NOT EXISTS app_metadata (
+  key TEXT PRIMARY KEY COLLATE BINARY,
+  value TEXT NOT NULL
+);

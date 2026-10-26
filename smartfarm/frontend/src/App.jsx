@@ -1,20 +1,40 @@
 import React, { useCallback, useEffect, useState } from "react";
+import CropCardForm from "./components/CropCardForm.jsx";
 import DashboardCard from "./components/DashboardCard.jsx";
-import { getReadings } from "./services/api.js";
-import { analyzeReadings } from "./utils/analysis.js";
+import {
+  createCropCard,
+  deleteCropCard,
+  getCropCards,
+  getCropOptions,
+  getReadings,
+  updateCropCard,
+} from "./services/api.js";
+import { analyzeCropCards } from "./utils/analysis.js";
+
+async function loadDashboardData() {
+  const [cropCards, readings] = await Promise.all([
+    getCropCards(),
+    getReadings(),
+  ]);
+  return analyzeCropCards(cropCards, readings);
+}
 
 export default function App() {
   const [crops, setCrops] = useState(null);
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [formCrop, setFormCrop] = useState(null);
+  const [cropOptions, setCropOptions] = useState([]);
+  const [newCropName, setNewCropName] = useState("");
 
   const refreshReadings = useCallback(async () => {
     setIsRefreshing(true);
     setError("");
     try {
-      const readings = await getReadings();
-      setCrops(analyzeReadings(readings));
+      const latestCrops = await loadDashboardData();
+      setCrops(latestCrops);
       setLastUpdated(new Date());
     } catch (refreshError) {
       setError(refreshError.message);
@@ -26,6 +46,53 @@ export default function App() {
   useEffect(() => {
     void refreshReadings();
   }, [refreshReadings]);
+
+  async function openAddForm() {
+    setError("");
+    try {
+      const options = await getCropOptions();
+      setCropOptions(options);
+      setNewCropName(options[0] ?? "");
+      setFormCrop({ mode: "add" });
+    } catch (loadError) {
+      setError(`Could not load available crops: ${loadError.message}`);
+    }
+  }
+
+  async function handleSave(profile) {
+    setIsSaving(true);
+    setError("");
+    try {
+      if (formCrop?.mode === "edit") {
+        await updateCropCard(formCrop.crop.cropName, profile);
+      } else {
+        await createCropCard(profile.cropName, profile);
+      }
+      const latestCrops = await loadDashboardData();
+      setCrops(latestCrops);
+      setLastUpdated(new Date());
+      setFormCrop(null);
+    } catch (saveError) {
+      setError(`Could not save crop card: ${saveError.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDelete(cropName) {
+    setError("");
+    try {
+      await deleteCropCard(cropName);
+      const latestCrops = await loadDashboardData();
+      setCrops(latestCrops);
+      setLastUpdated(new Date());
+      if (formCrop?.mode === "edit" && formCrop.crop.cropName === cropName) {
+        setFormCrop(null);
+      }
+    } catch (deleteError) {
+      setError(`Could not delete crop card: ${deleteError.message}`);
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -43,40 +110,74 @@ export default function App() {
               <p className="eyebrow">SENSOR OVERVIEW</p>
               <h1 id="dashboard-title">Crop conditions</h1>
               <p className="panel-description">
-                The latest soil moisture reading for each crop.
+                Manage crop profiles and view their latest sensor readings.
               </p>
             </div>
-            <button
-              className="refresh-button"
-              type="button"
-              onClick={refreshReadings}
-              disabled={isRefreshing}
-            >
-              <span aria-hidden="true">{isRefreshing ? "↻" : "⟳"}</span>
-              {isRefreshing ? "Refreshing..." : "Refresh readings"}
-            </button>
+            <div className="panel-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={openAddForm}
+                disabled={isSaving || isRefreshing}
+              >
+                Add Crop Card
+              </button>
+              <button
+                className="refresh-button"
+                type="button"
+                onClick={refreshReadings}
+                disabled={isRefreshing || isSaving}
+              >
+                <span aria-hidden="true">{isRefreshing ? "↻" : "⟳"}</span>
+                {isRefreshing ? "Refreshing..." : "Refresh Sensor Data"}
+              </button>
+            </div>
           </div>
 
           {error && (
             <p className="message error-message" role="alert">
-              Could not refresh sensor readings: {error}
+              {error}
             </p>
+          )}
+
+          {formCrop && (
+            <CropCardForm
+              key={
+                formCrop.mode === "edit"
+                  ? `edit-${formCrop.crop.cropName}`
+                  : "add-crop"
+              }
+              crop={formCrop.mode === "edit" ? formCrop.crop : null}
+              cropOptions={cropOptions}
+              cropName={newCropName}
+              onCropNameChange={setNewCropName}
+              onCancel={() => setFormCrop(null)}
+              onSubmit={handleSave}
+              isSaving={isSaving}
+            />
           )}
 
           {crops === null ? (
             !error && (
               <p className="message" role="status">
-                Loading crop conditions...
+                Loading crop cards and sensor readings...
               </p>
             )
           ) : crops.length === 0 ? (
             <p className="empty-state">
-              No crop names were found in the sensor feed.
+              No crop cards yet. Add a card for a crop in the sensor feed.
             </p>
           ) : (
             <div className="crop-grid">
               {crops.map((crop) => (
-                <DashboardCard crop={crop} key={crop.cropName} />
+                <DashboardCard
+                  crop={crop}
+                  key={crop.cropName}
+                  onEdit={(selectedCrop) =>
+                    setFormCrop({ mode: "edit", crop: selectedCrop })
+                  }
+                  onDelete={handleDelete}
+                />
               ))}
             </div>
           )}
@@ -84,9 +185,9 @@ export default function App() {
           <p className="reading-count" aria-live="polite">
             {lastUpdated
               ? `Updated ${lastUpdated.toLocaleTimeString()}`
-              : "Waiting for sensor readings"}
+              : "Waiting for crop cards and sensor readings"}
             {" · "}
-            Default target range: 30–70% until crop settings are added.
+            Moisture status uses each crop's saved target range.
           </p>
         </section>
       </main>

@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
-    "start:backend": "node backend/server.js"
+    "start:backend": "node backend/server.js",
+    "test": "node --test backend/*.test.js && npm --prefix frontend test"
   }
 }

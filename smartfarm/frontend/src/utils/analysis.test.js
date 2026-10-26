@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeReadings } from "./analysis.js";
+import { analyzeCropCards } from "./analysis.js";
 
 const now = Date.parse("2026-10-26T10:00:00.000Z");
 const recentTimestamp = "2026-10-26T09:30:00.000Z";
 
-test("groups by exact crop_name and uses the latest timestamp per crop", () => {
-  const crops = analyzeReadings(
+function card(cropName, targetMoistureMin = 30, targetMoistureMax = 70) {
+  return { cropName, targetMoistureMin, targetMoistureMax };
+}
+
+test("matches exact case-sensitive crop names and uses the greatest timestamp", () => {
+  const crops = analyzeCropCards(
+    [card("Tomatoes"), card("tomatoes")],
     [
       { crop_name: "Tomatoes", timestamp: recentTimestamp, soilMoisture: 22 },
       {
@@ -23,18 +28,16 @@ test("groups by exact crop_name and uses the latest timestamp per crop", () => {
     now,
   );
 
-  assert.equal(crops.length, 2);
-  assert.equal(crops[0].cropName, "Tomatoes");
   assert.equal(crops[0].moisture, 22);
   assert.equal(crops[0].status, "Dry");
-  assert.equal(crops[1].cropName, "tomatoes");
   assert.equal(crops[1].status, "Healthy");
 });
 
-test("classifies moisture range boundaries and wet readings", () => {
-  const crops = analyzeReadings(
+test("uses each saved crop target range and accepts both range boundaries", () => {
+  const crops = analyzeCropCards(
+    [card("Low", 30, 70), card("Min", 30, 70), card("Max", 30, 70), card("High", 30, 70)],
     [0, 30, 70, 100].map((soilMoisture, index) => ({
-      crop_name: `Crop ${index}`,
+      crop_name: ["Low", "Min", "Max", "High"][index],
       timestamp: recentTimestamp,
       soilMoisture,
     })),
@@ -48,7 +51,8 @@ test("classifies moisture range boundaries and wet readings", () => {
 });
 
 test("distinguishes sensor problems from invalid readings", () => {
-  const crops = analyzeReadings(
+  const crops = analyzeCropCards(
+    [card("Disconnected"), card("Out of range"), card("Stale")],
     [
       {
         crop_name: "Disconnected",
@@ -80,16 +84,24 @@ test("distinguishes sensor problems from invalid readings", () => {
   );
 });
 
-test("marks a crop invalid when it has no parseable timestamp", () => {
-  const [crop] = analyzeReadings(
+test("reports invalid timestamps and missing readings explicitly", () => {
+  const crops = analyzeCropCards(
+    [card("Untimed"), card("Missing")],
     [{ crop_name: "Untimed", timestamp: "not-a-date", soilMoisture: 50 }],
     now,
   );
 
-  assert.equal(crop.status, "Invalid Data");
+  assert.equal(crops[0].status, "Invalid Data");
+  assert.equal(crops[1].status, "Sensor Problem");
+  assert.equal(crops[1].moisture, null);
 });
 
-test("ignores readings without a usable crop name and rejects non-array feeds", () => {
-  assert.deepEqual(analyzeReadings([{ timestamp: recentTimestamp }], now), []);
-  assert.throws(() => analyzeReadings(null, now), /JSON array/);
+test("ignores malformed feed rows and rejects invalid input collections", () => {
+  assert.deepEqual(
+    analyzeCropCards([card("Tomatoes")], [{ timestamp: recentTimestamp }], now)[0]
+      .status,
+    "Sensor Problem",
+  );
+  assert.throws(() => analyzeCropCards(null, [], now), /Crop cards must be an array/);
+  assert.throws(() => analyzeCropCards([], null, now), /JSON array/);
 });

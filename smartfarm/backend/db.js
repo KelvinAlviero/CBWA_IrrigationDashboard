@@ -65,12 +65,21 @@ const seedCropsStatement = `
 
 export function initializeDatabase(database = cropDatabase) {
   database.exec(schema);
+  const hasSeeded = database
+    .prepare("SELECT 1 FROM app_metadata WHERE key = 'initial_crop_seeded'")
+    .get();
+  if (hasSeeded) return;
+
   const seedCrop = database.prepare(seedCropsStatement);
+  const markSeeded = database.prepare(
+    "INSERT INTO app_metadata (key, value) VALUES ('initial_crop_seeded', 'true')",
+  );
   database.exec("BEGIN");
   try {
     for (const crop of seedCrops) {
       seedCrop.run(crop);
     }
+    markSeeded.run();
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
