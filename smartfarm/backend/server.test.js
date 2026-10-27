@@ -79,8 +79,19 @@ test("static sensor file contains exactly five valid readings for each supported
   const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 
   assert.equal(readings.length, 20);
+  const allowedFields = [
+    "crop_name",
+    "timestamp",
+    "soil_moisture",
+    "temperature",
+    "rainfall",
+    "sensor_status",
+    "notes",
+  ].sort();
+  const outOfRangeReadings = [];
   for (const reading of readings) {
     assert.ok(readingsByCrop.has(reading.crop_name));
+    assert.deepEqual(Object.keys(reading).sort(), allowedFields);
     assert.match(reading.timestamp, timestampPattern);
     assert.ok(Number.isFinite(Date.parse(`${reading.timestamp}Z`)));
     assert.equal(typeof reading.soil_moisture, "number");
@@ -88,6 +99,17 @@ test("static sensor file contains exactly five valid readings for each supported
     assert.equal(typeof reading.rainfall, "number");
     assert.ok(["Online", "Offline", "Faulty"].includes(reading.sensor_status));
     assert.equal(typeof reading.notes, "string");
+    const numericOutOfRangeFields = [
+      ["soil_moisture", 0, 100],
+      ["temperature", 0, 50],
+      ["rainfall", 0, 50],
+    ].filter(
+      ([field, minimum, maximum]) =>
+        reading[field] < minimum || reading[field] > maximum,
+    );
+    if (numericOutOfRangeFields.length > 0) {
+      outOfRangeReadings.push({ reading, numericOutOfRangeFields });
+    }
     readingsByCrop.get(reading.crop_name).push(reading.timestamp);
   }
 
@@ -95,6 +117,99 @@ test("static sensor file contains exactly five valid readings for each supported
     assert.equal(timestamps.length, 5);
     assert.equal(new Set(timestamps).size, 5);
   }
+
+  assert.equal(outOfRangeReadings.length, 1);
+  assert.deepEqual(
+    outOfRangeReadings[0].numericOutOfRangeFields.map(([field]) => field),
+    ["soil_moisture"],
+  );
+  const invalidReading = outOfRangeReadings[0].reading;
+  const latestInvalidCropReading = readings
+    .filter(({ crop_name }) => crop_name === invalidReading.crop_name)
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
+  assert.notEqual(latestInvalidCropReading, invalidReading);
+
+  const defaultCards = [
+    {
+      crop_name: "Tomato",
+      location: "Greenhouse A",
+      target_min: 55,
+      target_max: 75,
+      normal_water: 500,
+    },
+    {
+      crop_name: "Lettuce",
+      location: "Greenhouse B",
+      target_min: 60,
+      target_max: 80,
+      normal_water: 400,
+    },
+    {
+      crop_name: "Wheat",
+      location: "North Field",
+      target_min: 35,
+      target_max: 55,
+      normal_water: 300,
+    },
+    {
+      crop_name: "Maize",
+      location: "South Field",
+      target_min: 50,
+      target_max: 70,
+      normal_water: 600,
+    },
+  ];
+  const results = defaultCards.map((crop) =>
+    analyseCrop(crop, getLatestReading(crop.crop_name, readings)),
+  );
+  assert.deepEqual(
+    results.map(({ crop, latest_reading, condition, recommended_water, alerts, action }) => ({
+      crop_name: crop.crop_name,
+      timestamp: latest_reading.timestamp,
+      condition,
+      recommended_water,
+      alerts,
+      action,
+    })),
+    [
+      {
+        crop_name: "Tomato",
+        timestamp: "2026-10-26T10:00:00",
+        condition: "Dry",
+        recommended_water: "500 L",
+        alerts: ["High temperature"],
+        action: "Water crop",
+      },
+      {
+        crop_name: "Lettuce",
+        timestamp: "2026-10-26T10:05:00",
+        condition: "Healthy",
+        recommended_water: "0 L",
+        alerts: [],
+        action: "Monitor",
+      },
+      {
+        crop_name: "Wheat",
+        timestamp: "2026-10-26T10:10:00",
+        condition: "Too Wet",
+        recommended_water: "0 L",
+        alerts: ["Rain detected"],
+        action: "Stop watering",
+      },
+      {
+        crop_name: "Maize",
+        timestamp: "2026-10-26T10:15:00",
+        condition: "Sensor Problem",
+        recommended_water: "N/A",
+        alerts: [],
+        action: "Check sensor",
+      },
+    ],
+  );
+  const latestReadingIndexes = defaultCards.map((crop) =>
+    readings.indexOf(getLatestReading(crop.crop_name, readings)),
+  );
+  assert.ok(latestReadingIndexes.some((index) => index < readings.length - 1));
 });
 
 test("structurally valid out-of-range readings are returned by the API", async (t) => {

@@ -37,6 +37,33 @@ recommended water, action, and valid-reading temperature/rain alerts. Overall Fa
 Status summarizes the current cards as No Crops, Sensor Feed Unavailable, Critical,
 Watch, or Normal.
 
+### Sensor data generation record
+
+- **AI tool:** GitHub Copilot in VS Code (Copilot SDK).
+- **Final prompt:**
+
+  > Generate a valid JSON array containing exactly 20 simulated SmartFarm sensor
+  > readings, with exactly five each for Tomato, Lettuce, Wheat, and Maize. Every
+  > object must contain exactly `crop_name`, `timestamp`, `soil_moisture`,
+  > `temperature`, `rainfall`, `sensor_status`, and `notes`. Use timestamps in
+  > `YYYY-MM-DDTHH:mm:ss` format, distinct within each crop, and mix the array order
+  > so the latest reading is not always last. Use only Online, Offline, or Faulty
+  > sensor statuses. Keep numeric values in their normal ranges except for exactly
+  > one structurally valid older reading with exactly one out-of-range numeric
+  > value; that reading must not be latest for its crop. Make the latest readings
+  > produce these cases using the default Crop Card settings: Tomato is Online,
+  > Dry, and above 35 C; Lettuce is Online and Healthy; Wheat is Online, Too Wet,
+  > and has rainfall of at least 5 mm; Maize is Faulty. Return only the JSON array,
+  > with no Markdown or explanation.
+
+- **Manual correction record:** The first draft did not meet the required
+  latest-reading scenarios: Tomato was not both Dry and above 35 C, Lettuce was
+  below its healthy range, Wheat was not Too Wet with at least 5 mm rainfall, and
+  the latest Maize reading was Online. I corrected those latest readings and added
+  one older Tomato reading with soil moisture 120; all other numeric values remain
+  in range. Automated tests verify the count, exact fields and types, timestamps,
+  intentional invalid reading, and all four latest dashboard outcomes.
+
 The backend initializes a SQLite database at
 `smartfarm/backend/data/crop-cards.sqlite` when it starts. Its schema is in
 `smartfarm/backend/data/schema.sql`. The `crops` table contains an automatic integer
